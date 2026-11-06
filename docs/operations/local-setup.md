@@ -13,7 +13,7 @@ Spec 18, with one change `[OUR DECISION]`: `cfnode/` instead of `runner/`, becau
 .
 ├── control-plane/        Python: one image for api and worker (ADR-0001, ADR-0014)
 │   ├── cloudforge/       thin FastAPI routers, services, SQL modules, worker loops
-│   ├── migrations/       0001_initial.sql (today's schema.sql), then forward-only files
+│   ├── migrations/       0001_initial.sql (the Gate C schema), then forward-only files
 │   ├── tests/            unit tests, and integration tests against real PostgreSQL
 │   ├── pyproject.toml    pinned dependencies
 │   └── Dockerfile
@@ -38,15 +38,17 @@ Spec 18, with one change `[OUR DECISION]`: `cfnode/` instead of `runner/`, becau
 
 - Linux with rootful Docker Engine and the Compose plugin, GNU make, and `sudo` for `make init`.
 - Nothing else. Python, Go and Node run in containers; the host's own copies are only for editors.
-- Free: port 80 on `127.0.0.1` and `::1`; ports 3000 and 5000 on `127.0.0.1`.
+- Free: port 8080 on `127.0.0.1` and `::1`, and ports 3000 and 5000 on `127.0.0.1`.
+  - For another web port, set `CF_HTTP_PORT` in `.env`.
+  - `[RAN]` On this host Apache holds port 80, so 8080 is the default.
 - `[RAN]` This host: Compose v5.7.0, GNU make 4.3, and `mountpoint`, `losetup` and `mkfs.ext4` present.
 
 ## Hostnames and ports
 
 | What | Address | Used by |
 |---|---|---|
-| Dashboard, `/api`, `/webhooks` | `http://cloudforge-console.localhost` (ADR-0015) | browser, scripts |
-| Apps | `http://<slug>.cloudforge.localhost`, `http://pr-<n>-<slug>.cloudforge.localhost` | browser |
+| Dashboard, `/api`, `/webhooks` | `http://cloudforge-console.localhost:8080` (ADR-0015) | browser, scripts |
+| Apps | `http://<slug>.cloudforge.localhost:8080`, `http://pr-<n>-<slug>.cloudforge.localhost:8080` | browser |
 | Gitea | `http://127.0.0.1:3000` | browser, dev only |
 | Registry | `127.0.0.1:5000` for pulls; `registry:5000` for pushes | host Docker daemon; buildkitd |
 | PostgreSQL | not published: `docker compose exec postgres psql` | labs |
@@ -59,11 +61,11 @@ Spec 18, with one change `[OUR DECISION]`: `cfnode/` instead of `runner/`, becau
 
 | Service | Runs | Networks | Secrets mounted | From |
 |---|---|---|---|---|
-| postgres | `postgres:18` | cf-control | both database passwords | M1 |
+| postgres | `postgres:18.6` | cf-control | the superuser's and both roles' passwords | M1 |
 | migrate | control-plane image, once, before api and worker | cf-control | owner password | M1 |
 | api | control-plane image | cf-control, cf-edge | app password, KEK, GitHub App files (M3) | M1 |
 | worker | control-plane image | cf-control, cf-edge | same as api | M2 (M1 gives it no work) |
-| nginx | nginx | cf-edge, plus every `cf-env-*` (the agent connects it) | none | M1 |
+| nginx | `nginx:1.31.8-alpine` | cf-edge, plus every `cf-env-*` (the agent connects it) | none | M1 |
 | registry | `registry:2.8.3` | cf-build; published `127.0.0.1:5000` | htpasswd file | M1 |
 | buildkitd | `infrastructure/buildkit/`: `moby/buildkit:v0.34.2-rootless` with uid 61000; ADR-0009 flags | cf-build | none | M1 |
 | runner | cfnode image, uid 61000 | cf-edge; buildkitd's socket on a shared volume | runner credential, registry login | M1 |
@@ -72,13 +74,15 @@ Spec 18, with one change `[OUR DECISION]`: `cfnode/` instead of `runner/`, becau
 | smee | smee-client | cf-edge | channel URL | M3 |
 | object storage | chosen in M4 | cf-control | its keys | M4 |
 
-Image versions are pinned in `docker-compose.yml`. Checked: `postgres:18` (18.1), `moby/buildkit:v0.34.2-rootless`, `registry:2.8.3` (2026-11-06).
+Image versions are pinned in `docker-compose.yml` and the Dockerfiles. Pinned on 2026-11-06:
+- `postgres:18.6`, `nginx:1.31.8-alpine` and `python:3.14.10-slim`;
+- `moby/buildkit:v0.34.2-rootless` and `registry:2.8.3`.
 
 ## Networks `[OUR DECISION]`
 
 | Network | Members | Why |
 |---|---|---|
-| cf-control | postgres, migrate, api, worker | only the control plane can reach the database |
+| cf-control | postgres, migrate, api, worker | only the control plane can reach the database. `internal`: nothing on it reaches the internet |
 | cf-edge | nginx, api, worker, runner, gitea, smee | HTTP between components, without the database |
 | cf-build | buildkitd, registry | RUN steps share buildkitd's network: they reach the internet and the registry (which needs a login), nothing else (ADR-0012) |
 | cf-env-`<id>` | nginx, one environment's apps | created by the agent (ADR-0010) |
@@ -90,10 +94,15 @@ Image versions are pinned in `docker-compose.yml`. Checked: `postgres:18` (18.1)
 
 ## Secrets
 
-All files live in `secrets/`, git-ignored, with mode 0400. Each is mounted only into the services listed above.
+All files live in `secrets/`, which is git-ignored.
+- The folder is mode 0700, so on the host only you can open it.
+- The files are 0444, so a container's user can read the ones mounted into it.
+  - A mounted file keeps its host owner and mode. `[RAN]` With 0400, PostgreSQL's user (uid 999) got "Permission denied".
+- Each file is mounted only into the services listed above.
 
 | File | For | Created by |
 |---|---|---|
+| `pg_superuser_password` | PostgreSQL's own superuser, needed only on its first start | `make init` |
 | `kek/k1` | envelope encryption (ADR-0007) | `make init` |
 | `pg_owner_password`, `pg_app_password` | the migration role and `cloudforge_app` | `make init`; the postgres init script creates both roles |
 | `registry_htpasswd`, `registry_runner`, `registry_agent` | registry accounts, a stub until M8 (ADR-0009) | `make init` |
@@ -104,7 +113,7 @@ All files live in `secrets/`, git-ignored, with mode 0400. Each is mounted only 
 
 | Target | Does | From |
 |---|---|---|
-| `init` | idempotent setup. `.env` from `.env.example`; missing secrets; the buildkitd state filesystem (sudo, ADR-0009: a 20 GiB file at `/var/lib/cloudforge/buildkit.img`) | M1 |
+| `init` | idempotent: creates the missing secrets. From slice 3 also the buildkitd state filesystem (sudo, ADR-0009: a 20 GiB file at `/var/lib/cloudforge/buildkit.img`) | M1 |
 | `up`, `down` | mount the build filesystem if it isn't mounted (no fstab edit), then build and start; stop, keeping volumes | M1 |
 | `register` | create one-time tokens, register the runner and the agent, write their credential files | M1 |
 | `demo` | from nothing to a working URL: `init`, `up`, `register`, push the fixture to Gitea, create the project, build, print the URL | M1 |

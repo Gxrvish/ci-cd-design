@@ -2,7 +2,7 @@
 
 ## Current position
 
-- Milestone: M1 (walking skeleton). Plan approved 2026-11-06. Repository initialized (`main`, first commit `d514379`). The M1 lab is done (I ran it for you, 2026-11-06).
+- Milestone: M1 (walking skeleton). Plan approved, lab done, slice 1 done (2026-11-06). Slice 2 is next.
 - M0: done 2026-11-06 (gates, lab, `docs/learning-log.md`). Its explain-back was skipped; the questions stay in the lab sheet.
 - Gate A (research): approved 2026-11-05. Report: `docs/research/gate-a.md`.
 - Gate B (architecture): approved 2026-11-06, all 3 parts. The part 3 amendments to earlier documents are applied.
@@ -10,7 +10,7 @@
   - Part 2: `docs/architecture/data-model.md`, `state-machines.md`, `failures-and-targets.md`, ADR-0006, ADR-0007.
   - Part 3: ADR-0008 to ADR-0013, `docs/threat-model.md`, `docs/milestone-plan.md`.
 - Gate C (technical design): approved 2026-11-06, all 3 parts.
-  - **Part 1, schema:** approved 2026-11-06. `docs/architecture/schema.sql` and `schema-check.sql`. Its refinements are applied to `data-model.md`.
+  - **Part 1, schema:** approved 2026-11-06. Now `control-plane/migrations/0001_initial.sql`, checked by `docs/architecture/schema-check.sql`. Its refinements are applied to `data-model.md`.
   - **Part 2, API contracts**, delivered in pieces:
     - **2a, runner API:** approved 2026-11-06. `contracts/v1.yaml`.
     - **2b, agent API:** approved 2026-11-06. Same file.
@@ -74,6 +74,12 @@
   - `git init` done. I commit each verified delivery; you review with `git show` ("commit always", 2026-11-06).
 - 2026-11-06: M1 lab checks `[RAN]` (`docs/operations/local-setup.md`). buildkitd runs as uid 61000 from a derived image (ADR-0009 amended); new threat 32.
 
+- 2026-11-06: M1 slice 1 (skeleton, PostgreSQL, migrations, `GET /healthz`):
+  - the API is async (SSE in M4 keeps many idle connections); one image serves migrate and api;
+  - port 8080 by default, because Apache holds 80 on this host (ADR-0015 amended);
+  - the migration ledger lives in schema `migration`, out of the app role's reach (ADR-0014 amended);
+  - secrets: folder 0700, files 0444; a third password for PostgreSQL's superuser.
+
 ## Open questions (not blocking)
 
 - **Staging hostnames.** ADR-0010 names production (`<slug>`) and previews (`pr-<n>-<slug>`), but not staging environments. The unique hostname column stops collisions in any case. The naming rule is decided in M7, with the branch type policies.
@@ -97,4 +103,4 @@
 
 ## Next step
 
-1. Slice 1: skeleton, PostgreSQL, migrations, `GET /healthz`.
+1. Slice 2: the control-plane API for M1. Dashboard side: repositories, projects, builds. Runner side: register, claim, logs, complete.

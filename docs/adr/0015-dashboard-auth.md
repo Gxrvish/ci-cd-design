@@ -1,6 +1,6 @@
 # ADR-0015: Dashboard sessions, CSRF and a separate site for the dashboard
 
-Status: accepted 2026-11-06 (Gate C part 2c).
+Status: accepted 2026-11-06 (Gate C part 2c). Amended 2026-11-06 (M1 slice 1): the local port is 8080.
 
 ## Context
 
@@ -36,7 +36,7 @@ Status: accepted 2026-11-06 (Gate C part 2c).
 
 Option 3 and option B.
 
-1. **Origin:** `http://cloudforge-console.localhost` serves the dashboard's static files, `/api` and `/webhooks`, through Nginx. One origin, so no CORS. Apps stay on `*.cloudforge.localhost`, which is a different site.
+1. **Origin:** `http://cloudforge-console.localhost:8080` (the port is `CF_HTTP_PORT`; Apache holds 80 on this host) serves the dashboard's static files, `/api` and `/webhooks`, through Nginx. One origin, so no CORS. Apps stay on `*.cloudforge.localhost`, which is a different site.
 2. **Session:**
    - The `cf_session` cookie holds 32 random bytes. It is `HttpOnly`, `SameSite=Strict` and `Path=/`, with no `Domain`, so it goes to this host only.
    - With HTTPS (M8) it also gets `Secure` and the `__Host-` prefix.

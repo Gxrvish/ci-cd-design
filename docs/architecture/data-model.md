@@ -1,7 +1,7 @@
 # Data model
 
 Status: accepted 2026-11-06 (Gate B part 2 of 3). Amended 2026-11-06 by part 3: every runner has an organization and a pool (ADR-0009); `project.staging_branches` (ADR-0013). Amended 2026-11-06 by Gate C part 1: builds belong to an environment, more composite keys, installation-wide project slugs.
-Column lists show keys and the columns that rules depend on. The full DDL is `schema.sql`.
+Column lists show keys and the columns that rules depend on. The full DDL is `control-plane/migrations/0001_initial.sql`.
 
 The entities come from `docs/spec.md` section 6. Four additions, all `[OUR DECISION]`:
 
@@ -10,7 +10,7 @@ The entities come from `docs/spec.md` section 6. Four additions, all `[OUR DECIS
 - **RegistrationToken**: the one-time tokens for runners and nodes (spec 16).
 - **BuildEvent, JobEvent, RunnerEvent**: the spec names DeploymentEvent. Every state machine gets the same kind of append-only table (`state-machines.md`).
 
-Not shown: `user_session`, `api_token` and `state_transition` (`schema.sql`).
+Not shown: `user_session`, `api_token` and `state_transition` (`control-plane/migrations/0001_initial.sql`).
 
 ## 1. Tenancy and Git
 

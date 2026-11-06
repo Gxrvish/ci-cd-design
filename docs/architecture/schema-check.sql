@@ -1,5 +1,5 @@
--- Checks the database rules in schema.sql. Status: accepted 2026-11-06 (Gate C part 1).
--- Run as cloudforge_app on a fresh database, after schema.sql:
+-- Checks the database rules in control-plane/migrations/0001_initial.sql. Status: accepted 2026-11-06 (Gate C part 1).
+-- Run as cloudforge_app on a fresh database, after that file:
 --   psql -v ON_ERROR_STOP=1 -f schema-check.sql
 -- Each check prints one "ok" line. Anything unexpected stops the script with an error.
 -- At M1 these checks move into the control plane's integration tests.

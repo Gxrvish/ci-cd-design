@@ -46,7 +46,7 @@ Option 3.
 - **Queries:** SQL strings with bound parameters (`%(name)s`), never formatted into the text. Rows come back as dataclasses (`class_row`). Pydantic is used only at the HTTP edge, where FastAPI needs it.
 - **Migrations:** files `control-plane/migrations/NNNN_name.sql`, forward only. `schema.sql` becomes `0001_initial.sql`. The runner (about 40 lines, M1):
   1. takes a session advisory lock, so two processes never migrate at once;
-  2. creates `schema_migration (version, sha256, applied_at)` if it is missing;
+  2. creates `migration.schema_migration (version, sha256, applied_at)` if it is missing. It has a schema of its own, so the app role's grant on every table in `public` (0001) never covers it (amended in M1 slice 1);
   3. stops if an applied file's checksum has changed, because applied files are immutable;
   4. applies each pending file and records it, in one transaction per file.
 

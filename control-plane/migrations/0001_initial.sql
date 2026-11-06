@@ -1,7 +1,7 @@
--- CloudForge schema
+-- CloudForge schema, migration 0001
 -- Status: accepted 2026-11-06 (Gate C part 1).
--- Target: PostgreSQL 18 (checked with 18.1, see schema-check.sql).
--- Concepts and rules: data-model.md, state-machines.md. Data access and migrations: ADR-0014.
+-- Target: PostgreSQL 18 (checked with 18.1, see docs/architecture/schema-check.sql).
+-- Concepts and rules: docs/architecture/data-model.md, state-machines.md. Data access and migrations: ADR-0014.
 --
 -- Conventions [OUR DECISION]
 -- * Table names are singular. USER is a reserved word in PostgreSQL, so the user table is app_user.

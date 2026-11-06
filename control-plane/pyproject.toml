@@ -1,0 +1,25 @@
+# Control-plane dependencies, pinned (ADR-0001, ADR-0014).
+# The Dockerfile installs them with `pip install --group <name>` (PEP 735).
+[dependency-groups]
+runtime = [
+    "fastapi==0.162.0",
+    "uvicorn==0.54.0",
+    "psycopg[binary]==3.3.8",
+    "psycopg-pool==3.3.3",
+]
+test = [
+    { include-group = "runtime" },
+    "pytest==9.2.0",
+    "httpx2==2.16.0",
+    "ruff==0.17.4",
+]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+extend-select = ["I", "B", "UP"]
+
+[tool.pytest.ini_options]
+addopts = "-q -p no:cacheprovider"
+pythonpath = ["."]

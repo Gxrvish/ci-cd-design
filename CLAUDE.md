@@ -35,29 +35,33 @@ Learning-first, self-hosted CI/CD and deployment platform. The full contract is 
 - `docs/progress.md`: state and decisions.
 - `docs/research/`: gate research with evidence.
 - `docs/architecture/`: overview (diagrams, components, protocol), data model (ER), state machines, failure scenarios and targets.
-  - `schema.sql`: full DDL (PostgreSQL 18); `schema-check.sql`: checks that its rules hold.
+  - `schema-check.sql`: checks that the rules of `control-plane/migrations/0001_initial.sql` (the full DDL) hold.
 - `docs/adr/`: one file per decision, `NNNN-title.md` (Status, Context, Evidence, Options, Decision, Why, Consequences).
 - `contracts/v1.yaml`: OpenAPI 3.1 for the node API `/v1` (runner and agent).
 - `docs/labs/`: one internals lab per milestone. I run it and show you the output.
 - `docs/learning-log.md`: one entry per milestone: what the lab showed, the explain-back result, a real-world note.
 - `docs/operations/local-setup.md`: repository layout, Compose services and networks, secrets, make targets.
+- `control-plane/`: the Python API (`cloudforge/`), SQL migrations (`migrations/`) and tests (`tests/`).
+- `infrastructure/`: PostgreSQL init SQL, Nginx config. `docker-compose.yml` and `Makefile`: the local stack.
+- `docs/stubs.md`: every shortcut in the code and the milestone that replaces it.
 - `docs/api/dashboard.md`: dashboard API plan (conventions, roles, endpoints per milestone). FastAPI generates the exact schema.
 - `docs/threat-model.md`: STRIDE threats per trust boundary, residual risks, security tests by milestone.
 - `docs/milestone-plan.md`: hours, weeks and dates per milestone at 6 h/week.
 
 ## Host facts
 
-Ubuntu 22.04, kernel 6.8, cgroup v2, rootful Docker 29.9 (overlay2 on ext4), buildx default `docker` driver, Go 1.26, Python 3.12, Node 20. No nginx, mkcert or buildctl installed; run them as containers.
+Ubuntu 22.04, kernel 6.8, cgroup v2, rootful Docker 29.9 (overlay2 on ext4), buildx default `docker` driver, Go 1.26, Python 3.12, Node 20. No nginx, mkcert or buildctl installed; run them as containers. Apache runs on port 80, so CloudForge uses 8080.
 
 ## Commands
 
+- Local stack: `make up` (then `http://cloudforge-console.localhost:8080/healthz`), `make test`, `make down`.
 - Schema check (throwaway PostgreSQL 18, no network, removed afterwards), from `docs/architecture/`:
 
   ```sh
-  docker run -d --rm --name cf-schema-check --network none -e POSTGRES_PASSWORD=unused postgres:18
+  docker run -d --rm --name cf-schema-check --network none -e POSTGRES_PASSWORD=unused postgres:18.6
   # wait until `docker logs cf-schema-check` shows "PostgreSQL init process complete" and pg_isready succeeds
   docker exec -i cf-schema-check psql -U postgres -v ON_ERROR_STOP=1 -q -c "CREATE ROLE cloudforge_app LOGIN"
-  docker exec -i cf-schema-check psql -U postgres -v ON_ERROR_STOP=1 -q -1 -f - < schema.sql
+  docker exec -i cf-schema-check psql -U postgres -v ON_ERROR_STOP=1 -q -1 -f - < ../../control-plane/migrations/0001_initial.sql
   docker exec -i cf-schema-check psql -U cloudforge_app -d postgres -v ON_ERROR_STOP=1 -f - < schema-check.sql
   docker stop cf-schema-check
   ```
