@@ -9,7 +9,7 @@ import psycopg
 from fastapi import FastAPI, HTTPException
 from psycopg_pool import AsyncConnectionPool
 
-from cloudforge import dashboard
+from cloudforge import dashboard, node_api
 from cloudforge.db import app_conninfo
 
 
@@ -22,6 +22,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan, openapi_url="/api/openapi.json", docs_url=None, redoc_url=None)
 app.include_router(dashboard.router)
+app.include_router(node_api.router)
 
 
 @app.get("/healthz")

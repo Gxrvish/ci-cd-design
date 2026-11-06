@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "CloudForge",
-    "description": "CloudForge's dashboard API, M1 part (docs/api/dashboard.md). Start the stack with `make up`.\n\nClick any request: it first creates the demo repository, project or build it needs (collection script). Run the whole collection (Runner) to see the full flow. After `make clean`, reset the variables.\n\nThe builds use a made-up commit. Once a runner exists (M1 slice 3) they fail at clone: put a real commit of your Gitea repository in `commitSha`.",
+    "description": "CloudForge's HTTP API, M1 part (docs/api/dashboard.md, contracts/v1.yaml). Start the stack with `make up`.\n\nClick any request: it first creates the demo repository, project or build it needs (collection script). Run the whole collection (Runner) to see the full flow. After `make clean`, reset the variables.\n\nThe builds use a made-up commit. Once a runner exists (M1 slice 3) they fail at clone: put a real commit of your Gitea repository in `commitSha`.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -13,7 +13,12 @@
     {"key": "externalId", "value": ""},
     {"key": "repositoryId", "value": ""},
     {"key": "projectSlug", "value": ""},
-    {"key": "buildId", "value": ""}
+    {"key": "buildId", "value": ""},
+    {"key": "registrationToken", "value": ""},
+    {"key": "runnerCredential", "value": ""},
+    {"key": "jobId", "value": ""},
+    {"key": "attempt", "value": ""},
+    {"key": "jobToken", "value": ""}
   ],
   "event": [
     {
@@ -23,11 +28,11 @@
         "exec": [
           "// Any request works on its own: the demo ids it uses are created first, if this collection has none yet.",
           "const vars = pm.collectionVariables;",
-          "const used = pm.request.url.toString() + ((pm.request.body && pm.request.body.raw) || \"\");",
-          "const post = (path, body, save) => pm.sendRequest({",
+          "const used = pm.request.url.toString() + ((pm.request.body && pm.request.body.raw) || \"\") + JSON.stringify(pm.request.auth || {});",
+          "const post = (path, body, save, token) => pm.sendRequest({",
           "    url: pm.variables.replaceIn(\"{{baseUrl}}\" + path),",
           "    method: \"POST\",",
-          "    header: { \"Content-Type\": \"application/json\" },",
+          "    header: Object.assign({ \"Content-Type\": \"application/json\" }, token ? { Authorization: \"Bearer \" + token } : {}),",
           "    body: { mode: \"raw\", raw: JSON.stringify(body) },",
           "}, (error, response) => {",
           "    if (error || response.code >= 300) throw new Error(`demo data: POST ${path} failed (${error || response.code})`);",
@@ -47,6 +52,12 @@
           "    buildId: (done) => ensure(\"projectSlug\", () =>",
           "        post(`/api/projects/${vars.get(\"projectSlug\")}/builds`, { commit_sha: vars.get(\"commitSha\") },",
           "            (build) => { vars.set(\"buildId\", build.id); done(); })),",
+          "    registrationToken: (done) => post(\"/api/orgs/{{org}}/runner-tokens\", { pool: \"trusted\" },",
+          "        (created) => { vars.set(\"registrationToken\", created.token); done(); }),",
+          "    runnerCredential: (done) => ensure(\"registrationToken\", () =>",
+          "        post(\"/v1/runners/register\", { name: \"postman\", capacity: 1 }, (runner) => {",
+          "            vars.set(\"runnerCredential\", runner.credential); vars.unset(\"registrationToken\"); done();",
+          "        }, vars.get(\"registrationToken\"))),",
           "};",
           "makers.externalId = makers.repositoryId;",
           "function ensure(name, done) { vars.get(name) ? done() : makers[name](done); }",
@@ -180,8 +191,92 @@
       ]
     },
     {
+      "name": "Runner API (M1)",
+      "item": [
+        {
+          "name": "Create a runner token",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/orgs/{{org}}/runner-tokens",
+            "body": {"mode": "raw", "raw": "{\n  \"pool\": \"trusted\"\n}", "options": {"raw": {"language": "json"}}}
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"201\", () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set(\"registrationToken\", pm.response.json().token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Register a runner",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/v1/runners/register",
+            "auth": {"type": "bearer", "bearer": [{"key": "token", "value": "{{registrationToken}}", "type": "string"}]},
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"postman\",\n  \"labels\": [],\n  \"capacity\": 1\n}",
+              "options": {"raw": {"language": "json"}}
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"201\", () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set(\"runnerCredential\", pm.response.json().credential);",
+                  "pm.collectionVariables.unset(\"registrationToken\");  // one use only"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Claim a job",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/v1/jobs/claim",
+            "auth": {"type": "bearer", "bearer": [{"key": "token", "value": "{{runnerCredential}}", "type": "string"}]}
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 with a job, or 204 when nothing is queued\", () => pm.expect([200, 204]).to.include(pm.response.code));",
+                  "if (pm.response.code === 200) {",
+                  "    const job = pm.response.json();",
+                  "    [\"jobId\", \"attempt\", \"jobToken\"].forEach((name, i) => pm.collectionVariables.set(name, [job.job_id, job.attempt, job.job_token][i]));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
       "name": "Expected errors",
       "item": [
+        {
+          "name": "Claim without a credential: 401",
+          "request": {"method": "POST", "url": "{{baseUrl}}/v1/jobs/claim"},
+          "event": [
+            {
+              "listen": "test",
+              "script": {"type": "text/javascript", "exec": ["pm.test(\"401\", () => pm.response.to.have.status(401));"]}
+            }
+          ]
+        },
         {
           "name": "Same repository again: 409",
           "request": {

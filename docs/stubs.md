@@ -11,3 +11,6 @@ Every shortcut in the code, and when it goes away. Remove a row when its replace
 | M1 slice 2a | a repository's `external_id` comes from the request, unchecked | M3, which checks it with the provider | nothing routes by it before webhooks |
 | M1 slice 2a | state changes are plain guarded `UPDATE`s with no event rows | M2: the state machine, YOU BUILD IT | M1 is allowed to be bad (spec M1) |
 | M1 slice 2a | manual builds always target the production branch | M7, with the branch types (ADR-0013) | only production environments exist |
+| M1 slice 2b | claims take no `SKIP LOCKED`; leases are set but nothing checks them (no heartbeat, no reaper) | M2: lease and fencing, YOU BUILD IT; the M2 lab adds `SKIP LOCKED` | one runner, so nothing races |
+| M1 slice 2b | a claim's `secrets` is always empty | M4, with project variables (ADR-0007) | no variables exist yet |
+| M1 slice 2b | `clone_token` is always null: public Gitea repositories only | M3, with GitHub installation tokens (ADR-0011) | the fixture repository is public |

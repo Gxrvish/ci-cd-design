@@ -1,14 +1,4 @@
-SHA = "3f786850e387550fdab836ed7e6dc881de23001b"
-
-
-def connect_repository(client, org="default"):
-    body = {"provider": "gitea", "external_id": "1", "full_name": "cloudforge/hello"}
-    return client.post(f"/api/orgs/{org}/repositories", json=body)
-
-
-def create_project(client, slug="hello", repository_id=None):
-    body = {"slug": slug, "name": "Hello", "repository_id": repository_id or connect_repository(client).json()["id"]}
-    return client.post("/api/orgs/default/projects", json=body)
+from tests.calls import SHA, connect_repository, create_project
 
 
 def test_a_repository_connects_once(client):

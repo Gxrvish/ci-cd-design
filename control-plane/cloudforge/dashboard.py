@@ -15,6 +15,7 @@ from psycopg import AsyncConnection
 from psycopg.errors import CheckViolation, ForeignKeyViolation, UniqueViolation
 from pydantic import BaseModel
 
+from cloudforge.credentials import new_secret
 from cloudforge.db import Connection, fetch_one
 
 router = APIRouter(prefix="/api")
@@ -32,6 +33,10 @@ class NewProject(BaseModel):
     repository_id: int
     production_branch: str = "main"
     root_dir: str = ""
+
+
+class NewRunnerToken(BaseModel):
+    pool: Literal["trusted", "untrusted"]  # decides which builds its runner may claim (ADR-0009)
 
 
 class NewBuild(BaseModel):
@@ -71,6 +76,12 @@ class Build:
     created_at: datetime
     started_at: datetime | None
     finished_at: datetime | None
+
+
+@dataclass
+class RunnerToken:
+    token: str  # shown once
+    expires_at: datetime
 
 
 @dataclass
@@ -151,6 +162,22 @@ async def create_build(slug: str, body: NewBuild, conn: Connection) -> Build:
                 raise HTTPException(404, "project not found")
             await conn.execute("INSERT INTO job (build_id, state) VALUES (%(id)s, 'queued')", {"id": build.id})
     return await get_build(build.id, conn)
+
+
+@router.post("/orgs/{org}/runner-tokens", status_code=201)
+async def create_runner_token(org: str, body: NewRunnerToken, conn: Connection) -> RunnerToken:
+    """A one-time token, valid for 1 hour, that registers one runner of this organization (R1)."""
+    token, token_hash = new_secret()  # only the hash reaches the database
+    cursor = await conn.execute(
+        """
+        INSERT INTO registration_token (kind, organization_id, pool, token_hash, expires_at)
+        VALUES ('runner', %(organization_id)s, %(pool)s, %(token_hash)s, now() + interval '1 hour')
+        RETURNING expires_at
+        """,
+        {"organization_id": await _organization_id(conn, org), "pool": body.pool, "token_hash": token_hash},
+    )
+    (expires_at,) = await cursor.fetchone()
+    return RunnerToken(token, expires_at)
 
 
 @router.get("/builds/{build_id}")

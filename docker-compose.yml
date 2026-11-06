@@ -1,15 +1,17 @@
 # Local CloudForge (docs/operations/local-setup.md). Start with `make up`.
 name: cloudforge
 
-x-db: &db
+x-env: &env
   PGHOST: postgres
   PGDATABASE: cloudforge
+  CF_GITEA_URL: http://gitea:3000  # as runners reach Gitea
+  CF_REGISTRY: registry:5000  # as buildkitd pushes
 
 # migrate, api and (from M2) worker share one image, built from its runtime stage.
 x-control-plane: &control-plane
   image: cloudforge-control-plane
   build: {context: control-plane, target: runtime}
-  environment: *db
+  environment: *env
   networks: [cf-control]
 
 services:
@@ -60,7 +62,7 @@ services:
     build: {context: control-plane, target: test}
     profiles: [test]
     environment:
-      <<: *db
+      <<: *env
       PGDATABASE: cloudforge_test
     secrets: [pg_owner_password, pg_app_password]
     networks: [cf-control]

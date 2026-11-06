@@ -44,6 +44,7 @@ Before M4 there is no login (a stub, ADR-0015). A seeded organization, `default`
 | M1 | `POST /api/orgs/{org}/repositories` | admin | connect a repository: a public Gitea one in M1; GitHub in M3, after checking access to the installation |
 | M1 | `POST /api/orgs/{org}/projects` | admin | also creates the production branch and environment |
 | M1 | `POST /api/projects/{slug}/builds` | developer | manual build of an exact SHA; the branch defaults to production |
+| M1 | `POST /api/orgs/{org}/runner-tokens` | admin | body `{pool}`; one runner, valid 1 hour. Brought forward from M4 so `make register` and Postman need no extra tool |
 | M1 | `GET /api/builds/{id}` | viewer | steps per attempt; an archived attempt's log has a short-lived download URL |
 | M2 | `POST /api/builds/{id}/cancel`, `.../rebuild` | developer | J11 or the cancel flag; a rebuild is a new build |
 | M3 | `POST /webhooks/github`, `POST /webhooks/gitea/{repository_id}` | signature | rules in ADR-0004: 202, also for duplicates; 401 for a bad signature |
@@ -54,7 +55,7 @@ Before M4 there is no login (a stub, ADR-0015). A seeded organization, `default`
 | M4 | `GET /api/projects/{slug}/builds` | viewer | build list |
 | M4 | `GET /api/builds/{id}/attempts/{n}/log` | viewer | SSE (ADR-0006, rules 5 to 7) |
 | M4 | `GET /api/projects/{slug}/variables`; `PUT`, `DELETE .../variables/{scope}/{name}` | viewer, admin | names, scopes and phases only; `PUT` takes `{value, phase}` |
-| M4 | `GET /api/orgs/{org}/runners`; `POST /api/orgs/{org}/runner-tokens`; `POST /api/runners/{id}/pause`, `resume`, `revoke` | viewer, admin | a runner token names its pool (ADR-0009) |
+| M4 | `GET /api/orgs/{org}/runners`; `POST /api/runners/{id}/pause`, `resume`, `revoke` | viewer, admin | a runner token names its pool (ADR-0009) |
 | M4 | `POST /api/node-tokens` | platform admin | one-time agent registration token |
 | M6 | `GET /api/projects/{slug}/environments`; `GET /api/environments/{id}/deployments`; `GET /api/deployments/{id}` | viewer | |
 | M6 | `POST /api/environments/{id}/deployments` | developer or admin | body `{build_id}`. The live build again is a redeploy; an older one is a rollback (D1) |

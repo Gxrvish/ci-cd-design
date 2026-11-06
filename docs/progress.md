@@ -2,7 +2,7 @@
 
 ## Current position
 
-- Milestone: M1 (walking skeleton). Plan approved, lab done, slice 1 and slice 2a done (2026-11-06). Slice 2b is next.
+- Milestone: M1 (walking skeleton). Plan approved, lab done, slices 1, 2a and 2b done (2026-11-06). Slice 2c is next.
 - M0: done 2026-11-06 (gates, lab, `docs/learning-log.md`). Its explain-back was skipped; the questions stay in the lab sheet.
 - Gate A (research): approved 2026-11-05. Report: `docs/research/gate-a.md`.
 - Gate B (architecture): approved 2026-11-06, all 3 parts. The part 3 amendments to earlier documents are applied.
@@ -88,6 +88,11 @@
 - 2026-11-06: `postman/cloudforge.postman_collection.json` (you asked): the M1 dashboard calls plus expected errors.
   Any request works alone (a collection script creates the demo data it needs). Newman: each request alone and the full run pass. It changes with every endpoint.
 
+- 2026-11-06: M1 slice 2b (runner tokens, register, claim):
+  - `POST /api/orgs/{org}/runner-tokens` moved from M4 to M1: one runner, valid 1 hour;
+  - tokens and credentials are 256 random bits, stored as SHA-256; the plaintext never reaches the database;
+  - a claim honours organization, trust = pool, labels and capacity (ADR-0003 rule 2, ADR-0009).
+
 ## Open questions (not blocking)
 
 - **Staging hostnames.** ADR-0010 names production (`<slug>`) and previews (`pr-<n>-<slug>`), but not staging environments. The unique hostname column stops collisions in any case. The naming rule is decided in M7, with the branch type policies.
@@ -111,4 +116,4 @@
 
 ## Next step
 
-1. Slice 2b, the runner side of the API: registration tokens, register, claim, logs, complete, and the M1 deploy shortcut.
+1. Slice 2c, the job calls: logs, complete with the M1 deploy shortcut, and reading an attempt's log.
