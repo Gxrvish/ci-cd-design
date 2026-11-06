@@ -45,7 +45,7 @@ Learning-first, self-hosted CI/CD and deployment platform. The full contract is 
 - `control-plane/`: the Python API (`cloudforge/`), SQL migrations (`migrations/`) and tests (`tests/`).
 - `infrastructure/`: PostgreSQL init SQL, Nginx config. `docker-compose.yml` and `Makefile`: the local stack.
 - `docs/stubs.md`: every shortcut in the code and the milestone that replaces it.
-- `postman/`: a Postman collection of the HTTP API, run in order; each request saves the ids the next one needs.
+- `postman/`: a Postman collection of the HTTP API. Any request works alone: a collection script first creates the demo data it needs.
 - `docs/api/dashboard.md`: dashboard API plan (conventions, roles, endpoints per milestone). FastAPI generates the exact schema.
 - `docs/threat-model.md`: STRIDE threats per trust boundary, residual risks, security tests by milestone.
 - `docs/milestone-plan.md`: hours, weeks and dates per milestone at 6 h/week.

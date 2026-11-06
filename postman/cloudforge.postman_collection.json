@@ -1,13 +1,15 @@
 {
   "info": {
     "name": "CloudForge",
-    "description": "CloudForge's dashboard API, M1 part (docs/api/dashboard.md). Start the stack with `make up`.\n\nRun the collection top to bottom (Runner): each request saves the ids the next one needs. Every run creates a new repository, project and build, so it can run again and again.\n\nThe builds use a made-up commit. Once a runner exists (M1 slice 3) they fail at clone: put a real commit of your Gitea repository in `commitSha`.",
+    "description": "CloudForge's dashboard API, M1 part (docs/api/dashboard.md). Start the stack with `make up`.\n\nClick any request: it first creates the demo repository, project or build it needs (collection script). Run the whole collection (Runner) to see the full flow. After `make clean`, reset the variables.\n\nThe builds use a made-up commit. Once a runner exists (M1 slice 3) they fail at clone: put a real commit of your Gitea repository in `commitSha`.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
     {"key": "baseUrl", "value": "http://cloudforge-console.localhost:8080"},
     {"key": "org", "value": "default"},
     {"key": "commitSha", "value": "3f786850e387550fdab836ed7e6dc881de23001b"},
+    {"key": "newExternalId", "value": ""},
+    {"key": "newProjectSlug", "value": ""},
     {"key": "externalId", "value": ""},
     {"key": "repositoryId", "value": ""},
     {"key": "projectSlug", "value": ""},
@@ -19,6 +21,37 @@
       "script": {
         "type": "text/javascript",
         "exec": [
+          "// Any request works on its own: the demo ids it uses are created first, if this collection has none yet.",
+          "const vars = pm.collectionVariables;",
+          "const used = pm.request.url.toString() + ((pm.request.body && pm.request.body.raw) || \"\");",
+          "const post = (path, body, save) => pm.sendRequest({",
+          "    url: pm.variables.replaceIn(\"{{baseUrl}}\" + path),",
+          "    method: \"POST\",",
+          "    header: { \"Content-Type\": \"application/json\" },",
+          "    body: { mode: \"raw\", raw: JSON.stringify(body) },",
+          "}, (error, response) => {",
+          "    if (error || response.code >= 300) throw new Error(`demo data: POST ${path} failed (${error || response.code})`);",
+          "    save(response.json());",
+          "});",
+          "const makers = {",
+          "    repositoryId: (done) => {",
+          "        const externalId = String(Date.now());",
+          "        post(\"/api/orgs/{{org}}/repositories\", { provider: \"gitea\", external_id: externalId, full_name: \"cloudforge/hello\" },",
+          "            (repository) => { vars.set(\"repositoryId\", repository.id); vars.set(\"externalId\", externalId); done(); });",
+          "    },",
+          "    projectSlug: (done) => ensure(\"repositoryId\", () => {",
+          "        const slug = \"hello-\" + Date.now();",
+          "        post(\"/api/orgs/{{org}}/projects\", { slug, name: \"Hello\", repository_id: Number(vars.get(\"repositoryId\")) },",
+          "            () => { vars.set(\"projectSlug\", slug); done(); });",
+          "    }),",
+          "    buildId: (done) => ensure(\"projectSlug\", () =>",
+          "        post(`/api/projects/${vars.get(\"projectSlug\")}/builds`, { commit_sha: vars.get(\"commitSha\") },",
+          "            (build) => { vars.set(\"buildId\", build.id); done(); })),",
+          "};",
+          "makers.externalId = makers.repositoryId;",
+          "function ensure(name, done) { vars.get(name) ? done() : makers[name](done); }",
+          "const missing = Object.keys(makers).filter((name) => used.includes(`{{${name}}}`));",
+          "(function next() { if (missing.length) ensure(missing.shift(), next); })();",
           "if (pm.request.body && pm.request.body.raw) {",
           "    pm.request.headers.upsert({ key: \"Content-Type\", value: \"application/json\" });",
           "}"
@@ -53,7 +86,7 @@
             "url": "{{baseUrl}}/api/orgs/{{org}}/repositories",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"provider\": \"gitea\",\n  \"external_id\": \"{{externalId}}\",\n  \"full_name\": \"cloudforge/hello\"\n}",
+              "raw": "{\n  \"provider\": \"gitea\",\n  \"external_id\": \"{{newExternalId}}\",\n  \"full_name\": \"cloudforge/hello\"\n}",
               "options": {"raw": {"language": "json"}}
             }
           },
@@ -62,7 +95,7 @@
               "listen": "prerequest",
               "script": {
                 "type": "text/javascript",
-                "exec": ["pm.collectionVariables.set(\"externalId\", String(Date.now()));"]
+                "exec": ["pm.collectionVariables.set(\"newExternalId\", String(Date.now()));"]
               }
             },
             {
@@ -71,7 +104,8 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test(\"201\", () => pm.response.to.have.status(201));",
-                  "pm.collectionVariables.set(\"repositoryId\", pm.response.json().id);"
+                  "pm.collectionVariables.set(\"repositoryId\", pm.response.json().id);",
+                  "pm.collectionVariables.set(\"externalId\", pm.collectionVariables.get(\"newExternalId\"));"
                 ]
               }
             }
@@ -84,7 +118,7 @@
             "url": "{{baseUrl}}/api/orgs/{{org}}/projects",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"slug\": \"{{projectSlug}}\",\n  \"name\": \"Hello\",\n  \"repository_id\": {{repositoryId}}\n}",
+              "raw": "{\n  \"slug\": \"{{newProjectSlug}}\",\n  \"name\": \"Hello\",\n  \"repository_id\": {{repositoryId}}\n}",
               "options": {"raw": {"language": "json"}}
             }
           },
@@ -93,12 +127,18 @@
               "listen": "prerequest",
               "script": {
                 "type": "text/javascript",
-                "exec": ["pm.collectionVariables.set(\"projectSlug\", \"hello-\" + Date.now());"]
+                "exec": ["pm.collectionVariables.set(\"newProjectSlug\", \"hello-\" + Date.now());"]
               }
             },
             {
               "listen": "test",
-              "script": {"type": "text/javascript", "exec": ["pm.test(\"201\", () => pm.response.to.have.status(201));"]}
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"201\", () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set(\"projectSlug\", pm.collectionVariables.get(\"newProjectSlug\"));"
+                ]
+              }
             }
           ]
         },

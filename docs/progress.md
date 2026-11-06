@@ -85,8 +85,8 @@
   - rows are dataclasses that FastAPI also returns as responses (ADR-0014); requests are Pydantic models;
   - pooled connections are in autocommit mode; several writes go inside an explicit transaction.
 
-- 2026-11-06: `postman/cloudforge.postman_collection.json` (you asked): the M1 dashboard calls plus expected errors,
-  re-runnable. Newman ran it: 9 requests, 13 assertions, 0 failed. It changes with every endpoint.
+- 2026-11-06: `postman/cloudforge.postman_collection.json` (you asked): the M1 dashboard calls plus expected errors.
+  Any request works alone (a collection script creates the demo data it needs). Newman: each request alone and the full run pass. It changes with every endpoint.
 
 ## Open questions (not blocking)
 
