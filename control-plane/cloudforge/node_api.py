@@ -123,12 +123,16 @@ async def register_runner(body: RunnerRegistration, token: Secret, conn: Connect
     return Credential(registered[0], credential)
 
 
-async def _runner(secret: Secret, conn: Connection) -> Runner:
+async def _locked_runner(conn: Connection, credential: str) -> Runner:
+    """The runner behind this credential, locked until the transaction ends. 401 if unknown or revoked."""
     runner = await fetch_one(
         conn,
         Runner,
-        "SELECT id, organization_id, pool, state, labels, capacity FROM runner WHERE credential_hash = %(hash)s",
-        {"hash": digest(secret)},
+        """
+        SELECT id, organization_id, pool, state, labels, capacity FROM runner WHERE credential_hash = %(hash)s
+        FOR NO KEY UPDATE
+        """,
+        {"hash": digest(credential)},
     )
     if runner is None or runner.state == "revoked":
         raise HTTPException(401, "unknown or revoked runner credential")
@@ -136,12 +140,17 @@ async def _runner(secret: Secret, conn: Connection) -> Runner:
 
 
 @router.post("/jobs/claim", response_model=Claim, responses={204: {"description": "Nothing to run"}})
-async def claim_job(runner: Annotated[Runner, Depends(_runner)], conn: Connection) -> Claim | Response:
-    """J2, and B2 on the first attempt: the oldest highest-priority job this runner may take (ADR-0003 rule 2)."""
-    if runner.state == "paused":
-        return Response(status_code=204)
+async def claim_job(credential: Secret, conn: Connection) -> Claim | Response:
+    """J2, and B2 on the first attempt: the oldest highest-priority job this runner may take (ADR-0003 rule 2).
+
+    One transaction from the credential check to the commit. The runner's row stays locked all along, so a pause
+    or revoke can't slip in between, and two claims of one runner never overlap (its capacity holds).
+    """
     job_token, token_hash = new_secret()
     async with conn.transaction():
+        runner = await _locked_runner(conn, credential)
+        if runner.state == "paused":
+            return Response(status_code=204)
         job = await fetch_one(
             conn,
             ClaimedJob,

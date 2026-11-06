@@ -30,6 +30,7 @@ Learning-first, self-hosted CI/CD and deployment platform. The full contract is 
   - Go over only when splitting would make it harder to understand, and say why.
   - Reason (user, 2026-11-06): big diffs are tiring to read and hard to follow.
 - The user is an Odoo backend developer: skip HTTP, SQL and Python basics; explain Go, container internals, BuildKit, scheduling, proxies and TLS concisely.
+  - Go: the user knows no Go yet (2026-11-06). Before any Go task, explain each new term in Odoo or Python words, teach the basics first, and split the task into small steps.
 
 ## Layout
 

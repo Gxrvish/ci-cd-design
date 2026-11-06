@@ -1,4 +1,10 @@
+import threading
+import time
+
+import psycopg
+
 from cloudforge.credentials import digest
+from cloudforge.db import owner_conninfo
 from tests.calls import SHA, bearer, queue_build, register_runner, runner_token
 
 
@@ -68,3 +74,28 @@ def test_paused_unknown_and_missing_runners(client, owner):
     assert claim(client, runner).status_code == 204
     assert claim(client, bearer("unknown")).status_code == 401
     assert claim(client, {}).status_code == 401
+
+
+def test_a_claim_waits_for_a_revoke_in_progress_then_refuses(client, owner):
+    queue_build(client)
+    runner = register_runner(client)
+    answer = {}
+    with psycopg.connect(owner_conninfo()) as revoker:  # one open transaction until commit()
+        revoker.execute("SELECT 1 FROM runner FOR NO KEY UPDATE")
+        claiming = threading.Thread(target=lambda: answer.update(claim=claim(client, runner)))
+        claiming.start()
+        wait_until_a_query_waits_for_a_lock(owner)
+        revoker.execute("UPDATE runner SET state = 'revoked'")
+        revoker.commit()
+        claiming.join(timeout=10)
+
+    assert answer["claim"].status_code == 401
+    assert owner.execute("SELECT count(*) FROM job WHERE state = 'running'").fetchone() == (0,)
+
+
+def wait_until_a_query_waits_for_a_lock(conn):
+    for _ in range(200):
+        if conn.execute("SELECT count(*) FROM pg_locks WHERE NOT granted").fetchone()[0]:
+            return
+        time.sleep(0.01)
+    raise AssertionError("the claim never waited for the runner's lock")
