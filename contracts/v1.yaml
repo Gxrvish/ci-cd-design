@@ -1,0 +1,499 @@
+openapi: 3.1.0
+info:
+  title: CloudForge node API
+  version: "1"
+  description: |
+    Status: accepted 2026-11-06 (Gate C parts 2a and 2b).
+
+    The runner and the agent live in one Go binary, cfnode (overview.md, section 4).
+    The FastAPI implementation and the Go client are both tested against this file.
+
+    Rules for every call:
+    - Callers never send timestamps. The server uses database time (ADR-0003 rule 1).
+    - 401: unknown, revoked or expired credential. Stop and report; retrying won't help.
+    - 409 on a job call: fenced. Stop the attempt, kill its containers, drop its unsent data (ADR-0003 rule 3).
+    - Network errors and 5xx: retry with backoff capped at 2 s. Self-fence after 2/3 of `lease_ttl_s`
+      without a successful heartbeat (ADR-0003 rule 7).
+    - Error bodies are FastAPI's default, `{"detail": "..."}`. Only 416 adds a field.
+    - Every 2xx answer to heartbeat, logs and steps carries `cancel_requested`.
+    - 422: the body failed validation. FastAPI's default body, where `detail` is a list. A client bug: don't retry.
+    - M1 stub until M8: registry logins come from the runner's and the agent's own config (ADR-0009).
+
+paths:
+  /v1/runners/register:
+    post:
+      tags: [runner]
+      summary: Exchange a one-time registration token for a runner credential (R1).
+      description: The token decides the organization and the pool. The runner can't choose them (ADR-0009).
+      security: [{registrationToken: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RunnerRegistration'}
+      responses:
+        '201':
+          description: Registered. The credential is shown only once; the server keeps its hash.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Credential'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+
+  /v1/jobs/claim:
+    post:
+      tags: [runner]
+      summary: Claim one job if this runner has a free slot (J2).
+      description: |
+        The server picks the oldest highest-priority queued job of the runner's organization whose
+        trust matches the runner's pool and whose labels the runner has. It counts the runner's
+        running jobs against its capacity (ADR-0003 rule 2, ADR-0009). The lease starts now.
+      security: [{runnerCredential: []}]
+      responses:
+        '200':
+          description: One job.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Claim'}
+        '204':
+          description: Nothing to run, or the runner is paused (R2). Poll again in 1 s ± 20 %.
+        '401': {$ref: '#/components/responses/Unauthorized'}
+
+  /v1/jobs/{job_id}/attempts/{attempt}/heartbeat:
+    parameters:
+      - $ref: '#/components/parameters/JobId'
+      - $ref: '#/components/parameters/Attempt'
+    post:
+      tags: [runner]
+      summary: Move the lease to now + lease_ttl_s. Send one every heartbeat_interval_s.
+      security: [{jobToken: []}]
+      responses:
+        '200': {$ref: '#/components/responses/JobAck'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '409': {$ref: '#/components/responses/Fenced'}
+
+  /v1/jobs/{job_id}/attempts/{attempt}/logs:
+    parameters:
+      - $ref: '#/components/parameters/JobId'
+      - $ref: '#/components/parameters/Attempt'
+    post:
+      tags: [runner]
+      summary: Append log chunk `seq` of this attempt (ADR-0006).
+      description: |
+        One chunk in flight, in order, starting at 0. Retry the same chunk until it gets a 2xx.
+        Flush at least once per second while output flows.
+      security: [{jobToken: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/LogChunk'}
+      responses:
+        '202':
+          description: Stored, or a repeat of a stored chunk. Check cancel_requested.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/JobAck'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '409': {$ref: '#/components/responses/Fenced'}
+        '413':
+          description: The chunk is over 64 KiB, or the attempt's log is over its limit.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '416':
+          description: Gap. Continue from expected_seq and write a "[log gap]" line.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/LogGap'}
+
+  /v1/jobs/{job_id}/attempts/{attempt}/steps:
+    parameters:
+      - $ref: '#/components/parameters/JobId'
+      - $ref: '#/components/parameters/Attempt'
+    post:
+      tags: [runner]
+      summary: Report that a step started or ended. The server records the time.
+      security: [{jobToken: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/StepReport'}
+      responses:
+        '200': {$ref: '#/components/responses/JobAck'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '409': {$ref: '#/components/responses/Fenced'}
+
+  /v1/jobs/{job_id}/attempts/{attempt}/complete:
+    parameters:
+      - $ref: '#/components/parameters/JobId'
+      - $ref: '#/components/parameters/Attempt'
+    post:
+      tags: [runner]
+      summary: Report the attempt's final result (J3, J4, J5).
+      description: Idempotent. The same result again gets 200; a different result gets 409 (ADR-0003 rule 6).
+      security: [{jobToken: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/Completion'}
+      responses:
+        '200': {description: Accepted.}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '409': {$ref: '#/components/responses/Fenced'}
+
+  /v1/jobs/{job_id}/attempts/{attempt}/release:
+    parameters:
+      - $ref: '#/components/parameters/JobId'
+      - $ref: '#/components/parameters/Attempt'
+    post:
+      tags: [runner]
+      summary: Give the job back during graceful shutdown (J10). The attempt still counts.
+      security: [{jobToken: []}]
+      responses:
+        '200': {description: Released.}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '409': {$ref: '#/components/responses/Fenced'}
+
+  /v1/nodes/register:
+    post:
+      tags: [agent]
+      summary: Exchange a one-time node registration token for an agent credential (R1 for nodes).
+      security: [{registrationToken: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/NodeRegistration'}
+      responses:
+        '201':
+          description: Registered. The credential is shown only once; the server keeps its hash.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Credential'}
+        '400':
+          description: The name is already registered.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+
+  /v1/nodes/me/desired:
+    get:
+      tags: [agent]
+      summary: What should run on this node, and where traffic goes (ADR-0005).
+      description: |
+        The credential identifies the node, so the path has no node id: one check less that could
+        hand a node another node's runtime secrets.
+
+        Poll every 2 s. On every poll, not only on a new generation, make the node match:
+        1. Create missing networks. Remove `cf-env-*` networks that are no longer listed, once empty.
+        2. Run every listed deployment: pending (being checked), live, and draining (grace period).
+           Pull by digest. Start it with the ADR-0012 flags, the label `cloudforge.deployment=<id>`,
+           the name `cf-d<id>` and `PORT=<port>`. Check its health (DeploymentObservation.health).
+           Remove every labeled container that is not listed.
+        3. Render the Nginx config from `routes`, test it, reload (ADR-0010).
+        4. Report with `POST /v1/nodes/me/observed`.
+      security: [{nodeCredential: []}]
+      responses:
+        '200':
+          description: The full desired state. It carries runtime secrets (ADR-0007).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DesiredState'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+
+  /v1/nodes/me/observed:
+    post:
+      tags: [agent]
+      summary: Report what actually runs on this node.
+      description: |
+        Facts, not decisions (state-machines.md rule 1). The server acts on them:
+        - a pending deployment reported healthy, in a report for the current generation, goes live (D2);
+        - a pending deployment reported unhealthy or exited fails (D3);
+        - a deployment that first appears in `routed_deployment_ids` gets `route_applied_at`, which
+          starts the drain timer of the one it replaced (D5).
+
+        Reports about deployments placed on other nodes are ignored.
+      security: [{nodeCredential: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ObservedState'}
+      responses:
+        '200': {description: Recorded.}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+
+components:
+  securitySchemes:
+    registrationToken:
+      type: http
+      scheme: bearer
+      description: One-time token created by an admin. It expires, and its kind (runner or node) must match the endpoint.
+    runnerCredential:
+      type: http
+      scheme: bearer
+      description: Returned once by register. Revoked with R4.
+    jobToken:
+      type: http
+      scheme: bearer
+      description: Returned by claim. Valid for one attempt, while the job runs.
+    nodeCredential:
+      type: http
+      scheme: bearer
+      description: Returned once by node register. Separate from runner credentials, because desired state holds runtime secrets.
+
+  parameters:
+    JobId:
+      name: job_id
+      in: path
+      required: true
+      schema: {type: integer, minimum: 1}
+    Attempt:
+      name: attempt
+      in: path
+      required: true
+      schema: {type: integer, minimum: 1}
+
+  responses:
+    JobAck:
+      description: Accepted. Check cancel_requested.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/JobAck'}
+    Unauthorized:
+      description: Unknown, revoked or expired credential or token.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    Fenced:
+      description: This attempt no longer owns the job. Stop it and kill its containers.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+
+  schemas:
+    Error:
+      type: object
+      required: [detail]
+      properties:
+        detail: {type: string}
+
+    LogGap:
+      allOf:
+        - $ref: '#/components/schemas/Error'
+        - type: object
+          required: [expected_seq]
+          properties:
+            expected_seq: {type: integer, minimum: 0}
+
+    JobAck:
+      type: object
+      required: [cancel_requested]
+      properties:
+        cancel_requested:
+          type: boolean
+          description: If true, cancel the solve and complete with result cancelled (J5).
+
+    RunnerRegistration:
+      type: object
+      required: [name, capacity]
+      properties:
+        name: {type: string, minLength: 1, maxLength: 63}
+        labels:
+          type: array
+          default: []
+          items: {type: string, pattern: '^[a-z0-9][a-z0-9_.-]{0,62}$'}
+        capacity: {type: integer, minimum: 1, maximum: 32}
+
+    Credential:
+      type: object
+      required: [id, credential]
+      properties:
+        id: {type: integer, description: The new runner's or node's id.}
+        credential: {type: string}
+
+    Claim:
+      type: object
+      required: [job_id, attempt, job_token, lease_ttl_s, heartbeat_interval_s, timeout_s,
+                 log_limit_bytes, source, image, secrets]
+      properties:
+        job_id: {type: integer}
+        attempt: {type: integer, minimum: 1}
+        job_token: {type: string}
+        lease_ttl_s: {type: integer, description: 'Starting value 30 (ADR-0003).'}
+        heartbeat_interval_s: {type: integer, description: 'Starting value 10 (ADR-0003).'}
+        timeout_s:
+          type: integer
+          description: Build timeout. The runner enforces it and completes as failed, reason timeout (J4).
+        log_limit_bytes:
+          type: integer
+          description: Past this size, stop sending output and say so in one line (ADR-0006 rule 4).
+        source: {$ref: '#/components/schemas/Source'}
+        image: {$ref: '#/components/schemas/ImageTarget'}
+        secrets:
+          type: array
+          description: Build-phase variables, for BuildKit secret mounts only (ADR-0007). Empty for untrusted builds.
+          items: {$ref: '#/components/schemas/Secret'}
+
+    Source:
+      type: object
+      required: [clone_url, commit_sha, clone_token, root_dir]
+      properties:
+        clone_url: {type: string, format: uri}
+        commit_sha: {type: string, pattern: '^[0-9a-f]{40}([0-9a-f]{24})?$'}
+        clone_token:
+          type: [string, 'null']
+          description: Read-only, this repository only, at most 1 hour (ADR-0007). Null for a public Gitea repository.
+        root_dir: {type: string, description: Build from this subdirectory. Empty means the repository root.}
+
+    ImageTarget:
+      type: object
+      required: [ref, max_bytes]
+      properties:
+        ref:
+          type: string
+          description: Push to this name, <registry>/<org>/<project>:<sha12>-b<build>-a<attempt> (ADR-0008).
+        max_bytes:
+          type: integer
+          description: If the pushed image is bigger, complete as failed, reason image_too_large (ADR-0012).
+
+    Secret:
+      type: object
+      required: [name, value]
+      properties:
+        name: {type: string, pattern: '^[A-Za-z_][A-Za-z0-9_]{0,127}$'}
+        value: {type: string}
+
+    LogChunk:
+      type: object
+      required: [seq, text]
+      properties:
+        seq: {type: integer, minimum: 0}
+        text:
+          type: string
+          description: Masked, valid UTF-8 without NUL bytes, at most 64 KiB once encoded (ADR-0006 rule 1).
+
+    StepReport:
+      type: object
+      required: [name, status]
+      properties:
+        name: {type: string, enum: [clone, detect, install, build, test, image, push]}
+        status: {type: string, enum: [running, succeeded, failed, cancelled, skipped]}
+        cached: {type: boolean, default: false, description: Every vertex of the step came from the cache.}
+        error: {type: [string, 'null']}
+
+    Completion:
+      type: object
+      required: [result]
+      properties:
+        result: {type: string, enum: [succeeded, failed, cancelled]}
+        image_digest: {type: string, pattern: '^sha256:[0-9a-f]{64}$'}
+        reason:
+          type: string
+          description: step_failed:<step>, timeout or image_too_large.
+      allOf:
+        - if: {properties: {result: {const: succeeded}}}
+          then: {required: [image_digest]}
+        - if: {properties: {result: {const: failed}}}
+          then: {required: [reason]}
+
+    NodeRegistration:
+      type: object
+      required: [name]
+      properties:
+        name: {type: string, pattern: '^[a-z0-9][a-z0-9-]{0,62}$'}
+
+    DesiredState:
+      type: object
+      required: [generation, networks, deployments, routes]
+      properties:
+        generation: {type: integer, minimum: 0, description: Grows whenever anything below changes (ADR-0005).}
+        networks:
+          type: array
+          items: {$ref: '#/components/schemas/Network'}
+        deployments:
+          type: array
+          items: {$ref: '#/components/schemas/DeploymentSpec'}
+        routes:
+          type: array
+          items: {$ref: '#/components/schemas/Route'}
+
+    Network:
+      type: object
+      required: [name, subnet]
+      properties:
+        name: {type: string, pattern: '^cf-env-[1-9][0-9]*$'}
+        subnet: {type: string, description: 'An IPv4 /27 from the CloudForge range, for example 10.42.0.32/27 (ADR-0010).'}
+
+    DeploymentSpec:
+      type: object
+      required: [id, image, network, port, health_path, limits, env]
+      properties:
+        id: {type: integer}
+        image:
+          type: string
+          pattern: '^[^@\s]+@sha256:[0-9a-f]{64}$'
+          description: Pull by digest, never by tag.
+        network: {type: string, pattern: '^cf-env-[1-9][0-9]*$'}
+        port: {type: integer, minimum: 1, maximum: 65535, description: The app listens here; the agent sets PORT.}
+        health_path: {type: string, pattern: '^/'}
+        limits: {$ref: '#/components/schemas/Limits'}
+        env:
+          type: array
+          description: Runtime variables of the deployment's environment (ADR-0007).
+          items: {$ref: '#/components/schemas/Secret'}
+
+    Limits:
+      type: object
+      required: [cpus, memory_bytes, pids]
+      description: From the environment's branch type (ADR-0013).
+      properties:
+        cpus: {type: number, exclusiveMinimum: 0}
+        memory_bytes: {type: integer, minimum: 1}
+        pids: {type: integer, minimum: 1}
+
+    Route:
+      type: object
+      required: [hostname, deployment_id]
+      properties:
+        hostname: {type: string, description: A generated or verified custom domain (ADR-0010).}
+        deployment_id: {type: integer, description: A live deployment of this desired state.}
+
+    ObservedState:
+      type: object
+      required: [generation, deployments, routed_deployment_ids, proxy_error]
+      properties:
+        generation:
+          type: integer
+          minimum: 0
+          description: The newest desired generation whose containers and routes are in place. Health checks may still run.
+        deployments:
+          type: array
+          items: {$ref: '#/components/schemas/DeploymentObservation'}
+        routed_deployment_ids:
+          type: array
+          description: Deployments the running Nginx config routes to, after a successful reload.
+          items: {type: integer}
+        proxy_error:
+          type: [string, 'null']
+          description: The last failed `nginx -t`. The previous config stays in place (ADR-0010).
+
+    DeploymentObservation:
+      type: object
+      required: [id, health]
+      properties:
+        id: {type: integer}
+        health:
+          type: string
+          enum: [starting, healthy, unhealthy, exited]
+          description: |
+            The agent sends `GET <health_path>` to `port` every 2 s, with a 2 s timeout. A 2xx or 3xx answer is good [OUR DECISION].
+            - starting: running, no healthy answer yet, for at most 120 s since start.
+            - healthy: 3 good answers in a row.
+            - unhealthy: no healthy answer within 120 s of start, or 3 bad answers in a row after that.
+              A live container that turns unhealthy or exits is restarted; it stays live (state-machines.md).
+            - exited: not running. It crashed, or failed to pull or start; `detail` says why.
+        detail: {type: [string, 'null']}
