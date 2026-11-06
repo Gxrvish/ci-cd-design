@@ -2,7 +2,7 @@
 
 ## Current position
 
-- Milestone: M1 (walking skeleton). Design talk given 2026-11-06; waiting for your picks and "go" (plan below).
+- Milestone: M1 (walking skeleton). Plan approved 2026-11-06. Repository initialized (`main`, first commit `d514379`). The M1 lab is done (I ran it for you, 2026-11-06).
 - M0: done 2026-11-06 (gates, lab, `docs/learning-log.md`). Its explain-back was skipped; the questions stay in the lab sheet.
 - Gate A (research): approved 2026-11-05. Report: `docs/research/gate-a.md`.
 - Gate B (architecture): approved 2026-11-06, all 3 parts. The part 3 amendments to earlier documents are applied.
@@ -68,16 +68,19 @@
   - this replaces SQLAlchemy and Alembic from spec 4 (ADR-0001 amended);
   - the reason is cost, not capability: SQLAlchemy can do almost everything we need.
 
+- 2026-11-06: M1 plan approved ("go" = your example `1a 2yes 3yes`):
+  - the agent drives Docker with stdlib HTTP over the socket; no SDK, no CLI;
+  - the worker container starts in M2;
+  - `git init` done. I commit each verified delivery; you review with `git show` ("commit always", 2026-11-06).
+- 2026-11-06: M1 lab checks `[RAN]` (`docs/operations/local-setup.md`). buildkitd runs as uid 61000 from a derived image (ADR-0009 amended); new threat 32.
+
 ## Open questions (not blocking)
 
 - **Staging hostnames.** ADR-0010 names production (`<slug>`) and previews (`pr-<n>-<slug>`), but not staging environments. The unique hostname column stops collisions in any case. The naming rule is decided in M7, with the branch type policies.
 - **Connecting a GitHub repository (M3).** The API must check that the user can access the GitHub App installation before linking one of its repositories. The schema already lets only one organization own a repository.
-- **buildkitd's uid is your login uid (M1 lab).** `moby/buildkit:rootless` runs as uid 1000, and root in a RUN step maps to it (`[SOURCE]` moby/buildkit `docs/rootless.md:107-132`, Apache-2.0, `b9d02e6`). On this host uid 1000 is `odoo`, a member of `docker` and `sudo` (`[RAN]` `id`). ADR-0009 calls that user unprivileged; here it is not.
-  - An escape past the buildkitd container would land as `odoo`. It could edit `~/.bashrc`, and your next shell has the `docker` group, which is root-equivalent `[INFERRED]`.
-  - The runner shares the same uid.
-  - The M1 lab picks a fix: a derived image with a uid no person uses (the docs say the image must be rebuilt for that), or a documented residual risk.
+- **Registry tokens (M1 slice 3, threat 32).** BuildKit fetches registry tokens in its client, our runner, from a URL the registry chooses. Slice 3 checks that a session without a token authority makes buildkitd fetch them itself, from cf-build.
 
-## M1 plan (proposed 2026-11-06, waiting for your "go")
+## M1 plan (approved 2026-11-06)
 
 - **Goal (spec M1):** `make demo` takes the fixture Dockerfile app from nothing to a working URL.
   - Happy path only: no auth, UI, webhooks, leases or retries yet.
@@ -87,16 +90,11 @@
   3. cfnode runner: the claim loop (YOU BUILD IT), then clone, BuildKit build and push.
   4. cfnode agent and Nginx, with the M1 shortcut: stop old, then start new. The real reconciliation loop is M6's YOU BUILD IT.
   5. `make demo` with the fixture app in Gitea. Then break it (kill the runner mid-build), review, explain-back.
-- **Your decisions:**
-  1. How the agent talks to Docker: stdlib HTTP on the socket, Docker's Go SDK, or the `docker` CLI.
-  2. The worker container starts in M2, because M1 has no job for it.
-  3. `git init` in this folder.
+- **Decided:** the agent uses stdlib HTTP on the Docker socket; the worker starts in M2; `git init` done.
 - **Defaults unless you object:**
   - Clone with the git CLI (ADR-0008: depth 1, no submodules, no LFS).
   - Trigger builds with curl. No CLI.
 
 ## Next step
 
-1. Reply with your picks for the 3 decisions in the M1 plan, then "go".
-2. The M1 internals lab: BuildKit by hand, about 15 min for you. Before that, I run the infrastructure checks from `local-setup.md`.
-3. Slice 1.
+1. Slice 1: skeleton, PostgreSQL, migrations, `GET /healthz`.

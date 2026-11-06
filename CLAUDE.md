@@ -16,11 +16,14 @@ Learning-first, self-hosted CI/CD and deployment platform. The full contract is 
 - Label claims about real systems: [SOURCE] (repo + file:line), [DOCS] (link), [INFERRED], [OUR DECISION], [RAN] (command run in session).
 - Never invent internals of Vercel or Render.
 - Every milestone: internals lab, break it, 5 explain-back questions (answers hidden), real-world note, append to `docs/learning-log.md`.
-- Labs: about 15 min, one terminal, plain commands. Each step names the CloudForge decision it explains. Reason (user, 2026-11-06): the first M0 sheet (45 min, two terminals) felt awkward and its payoff was unclear.
+- Labs: about 15 min, plain commands. Each step names the CloudForge decision it explains.
+  - I run them and show the real output, with what each step means. The user doesn't type the commands.
+  - Reasons (user, 2026-11-06): the first M0 sheet (45 min, two terminals) felt awkward, and later: "Not into copy pasting commands."
 - List every stub or simplification in `docs/stubs.md`.
 - Update `docs/progress.md` and this file after every step.
 - Code: clean code, SOLID, DRY, KISS and YAGNI, strictly (user rule, 2026-11-06).
 - SQL: psycopg 3 with bound parameters only, never values formatted into SQL text. No ORM (ADR-0014).
+- Git: branch `main`, created 2026-11-06. Commit each delivery once it is verified. The user reviews afterwards with `git show` (user, 2026-11-06: "commit always"). Never push.
 - Every change: aim for at most 500 added or changed lines per delivery, code and docs together, and report the count.
   - Go over only when splitting would make it harder to understand, and say why.
   - Reason (user, 2026-11-06): big diffs are tiring to read and hard to follow.
@@ -35,7 +38,7 @@ Learning-first, self-hosted CI/CD and deployment platform. The full contract is 
   - `schema.sql`: full DDL (PostgreSQL 18); `schema-check.sql`: checks that its rules hold.
 - `docs/adr/`: one file per decision, `NNNN-title.md` (Status, Context, Evidence, Options, Decision, Why, Consequences).
 - `contracts/v1.yaml`: OpenAPI 3.1 for the node API `/v1` (runner and agent).
-- `docs/labs/`: one hands-on internals lab per milestone, each run by me before you get it.
+- `docs/labs/`: one internals lab per milestone. I run it and show you the output.
 - `docs/learning-log.md`: one entry per milestone: what the lab showed, the explain-back result, a real-world note.
 - `docs/operations/local-setup.md`: repository layout, Compose services and networks, secrets, make targets.
 - `docs/api/dashboard.md`: dashboard API plan (conventions, roles, endpoints per milestone). FastAPI generates the exact schema.

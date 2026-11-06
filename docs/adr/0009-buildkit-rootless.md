@@ -1,6 +1,6 @@
 # ADR-0009: BuildKit deployment: one rootless buildkitd per runner
 
-Status: accepted 2026-11-06 (Gate B part 3).
+Status: accepted 2026-11-06 (Gate B part 3). Amended 2026-11-06 by the M1 lab: buildkitd runs as uid 61000.
 
 ## Context
 
@@ -42,6 +42,9 @@ Option 4, with one buildkitd per runner.
 - **Who starts it:** Compose (later `make`, per node), never the runner.
   - Flags: the three `--security-opt` values above.
   - Never `--privileged`, never `--oci-worker-no-process-sandbox`.
+- **Image:** a derived image (`infrastructure/buildkit/`) runs buildkitd as uid 61000.
+  - The stock image runs as uid 1000, which is usually the first login account on a Linux desktop (`odoo` on this host).
+  - An escape would then land in that person's files and shell `[RAN]`, M1 lab.
 - **Connection:** the runner reaches buildkitd through a Unix socket on a volume shared only with its own buildkitd. There is no TCP listener, so app containers cannot reach it.
 - **Limits:** `--cpus`, `--memory` and `--pids-limit` are set on the buildkitd container. That runner's concurrent builds share them.
 - **Disk:**
@@ -90,4 +93,4 @@ So:
   - `data-model.md`: `runner.organization_id NOT NULL`, new `runner.pool`.
 - **`make init` gains a sudo step** for the loop-mounted filesystem. After a reboot it must be mounted again (fstab entry or make target).
 - **No per-build limits inside one buildkitd:** a fork bomb in one build can starve the other builds of the same runner, but not the host. The M5 break-it session runs the fork bomb fixture to check this.
-- **Not yet run on this host:** rootless buildkitd startup, and RUN steps with the three security options. The M1 internals lab runs them first.
+- **Run on this host** in the M1 internals lab `[RAN]` 2026-11-06. The results are in `docs/operations/local-setup.md`.

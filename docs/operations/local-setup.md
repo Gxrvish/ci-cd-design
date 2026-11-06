@@ -62,17 +62,17 @@ Spec 18, with one change `[OUR DECISION]`: `cfnode/` instead of `runner/`, becau
 | postgres | `postgres:18` | cf-control | both database passwords | M1 |
 | migrate | control-plane image, once, before api and worker | cf-control | owner password | M1 |
 | api | control-plane image | cf-control, cf-edge | app password, KEK, GitHub App files (M3) | M1 |
-| worker | control-plane image | cf-control, cf-edge | same as api | M1 |
+| worker | control-plane image | cf-control, cf-edge | same as api | M2 (M1 gives it no work) |
 | nginx | nginx | cf-edge, plus every `cf-env-*` (the agent connects it) | none | M1 |
-| registry | `registry:2` | cf-build; published `127.0.0.1:5000` | htpasswd file | M1 |
-| buildkitd | `moby/buildkit:rootless`, ADR-0009 flags | cf-build | none | M1 |
-| runner | cfnode image | cf-edge; buildkitd's socket on a shared volume | runner credential, registry login | M1 |
+| registry | `registry:2.8.3` | cf-build; published `127.0.0.1:5000` | htpasswd file | M1 |
+| buildkitd | `infrastructure/buildkit/`: `moby/buildkit:v0.34.2-rootless` with uid 61000; ADR-0009 flags | cf-build | none | M1 |
+| runner | cfnode image, uid 61000 | cf-edge; buildkitd's socket on a shared volume | runner credential, registry login | M1 |
 | agent | cfnode image, Docker socket, host network | host | agent credential, registry login | M1 |
 | gitea | Gitea; published `127.0.0.1:3000` | cf-edge | none | M1 (webhooks from M3) |
 | smee | smee-client | cf-edge | channel URL | M3 |
 | object storage | chosen in M4 | cf-control | its keys | M4 |
 
-Image versions are pinned in `docker-compose.yml` when M1 first pulls them. `postgres:18` is already checked (18.1).
+Image versions are pinned in `docker-compose.yml`. Checked: `postgres:18` (18.1), `moby/buildkit:v0.34.2-rootless`, `registry:2.8.3` (2026-11-06).
 
 ## Networks `[OUR DECISION]`
 
@@ -114,10 +114,22 @@ All files live in `secrets/`, git-ignored, with mode 0400. Each is mounted only 
 
 Linters: `ruff` for Python, `go vet` and `gofmt` for Go, both run by `make test`.
 
-## Checked in the M1 internals lab, not before
+## Checked in the M1 internals lab `[RAN]` 2026-11-06
 
-1. Rootless buildkitd with the ADR-0009 flags. Its socket is shared with the runner (same uid).
-2. buildkitd pushing over plain HTTP to `registry:5000`. This needs a registry entry in `buildkitd.toml` `[INFERRED]`.
-3. A push to `registry:5000`, then a pull by digest from `127.0.0.1:5000`, giving the same image.
-4. A RUN step can't raise its own limits: `echo max > /sys/fs/cgroup/memory.max` must fail. In the M0 lab, the same write succeeded in the hand-made container (`docs/learning-log.md`).
-5. buildkitd's uid. On this host, uid 1000 is the login user (`docs/progress.md`, open questions).
+1. **Rootless buildkitd with the ADR-0009 flags** starts, with the overlayfs snapshotter on a volume.
+   - A client running as the same uid, with no network of its own, reaches it through the socket on a shared volume.
+2. **Plain HTTP push to `registry:5000`** works with this `buildkitd.toml` entry: `[registry."registry:5000"]` and `http = true`.
+3. **Two registry names, one image:** pushed as `registry:5000/lab/app:1`, then pulled on the host as `127.0.0.1:5000/lab/app@sha256:3519…`. The digest matched the registry's `Docker-Content-Digest` header.
+4. **A RUN step can't raise its limits.** It has no cgroup filesystem at all ("nonexistent directory").
+   - On the host it sits in buildkitd's container cgroup, so `--memory` and `--pids-limit` there cover every build.
+5. **buildkitd's uid:**
+   - The stock image runs as uid 1000, which is `odoo` on this host. RUN-step root mapped to it (`uid_map 0 1000 1`).
+   - A 5-line derived image (`sed` on `/etc/passwd` and `/etc/group`, `chown`, `USER 61000`) runs as uid 61000. That is above this host's `UID_MAX` of 60000, so no person has it. RUN-step root then maps to 61000.
+   - The runner runs as the same uid, to share the socket.
+
+Also found: **BuildKit fetches registry tokens in its client, which is our runner.**
+- `[RAN]` A client with `--network none` failed with "failed to fetch anonymous token ... lookup auth.docker.io".
+- `[SOURCE]` moby/buildkit `b9d02e6`, Apache-2.0:
+  - buildkitd takes the token URL (the realm) from the registry's challenge (`util/resolver/authorizer.go:219`).
+  - When the client's session offers a token authority, the client fetches the token from that realm (`authorizer.go:361-368`; `session/auth/authprovider/authprovider.go:144-157`).
+- So the runner needs internet access, and threat #32 applies.
