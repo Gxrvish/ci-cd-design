@@ -2,7 +2,7 @@
 
 ## Current position
 
-- Milestone: M1 (walking skeleton). Plan approved, lab done, slices 1 and 2 done. Slice 3 started (2026-11-06): your claim loop is ready to build.
+- Milestone: M1 (walking skeleton). Plan approved, lab done, slices 1 and 2 done. Slice 3 started (2026-11-06): the claim loop is done (SHOW ME, with a walkthrough).
 - M0: done 2026-11-06 (gates, lab, `docs/learning-log.md`). Its explain-back was skipped; the questions stay in the lab sheet.
 - Gate A (research): approved 2026-11-05. Report: `docs/research/gate-a.md`.
 - Gate B (architecture): approved 2026-11-06, all 3 parts. The part 3 amendments to earlier documents are applied.
@@ -97,6 +97,8 @@
   - 6 acceptance tests on `testing/synctest` (fake clock). My private version passes; 5 broken versions each fail the test of the rule they break.
   - Go tests run on the host's Go 1.26 (`make test-go`), not in an image.
 - 2026-11-06: no `Co-Authored-By` lines for Claude in commits (your rule). The first 8 commits still have one.
+- 2026-11-06: the claim is one transaction, from the credential check to the commit, with the runner's row locked (`FOR NO KEY UPDATE`).
+- 2026-11-06: claim loop, YOU BUILD IT: you chose SHOW ME plus a walkthrough (you are new to Go). It is in `loop.go`, and the walkthrough is in its task sheet. Your first Go to write is M6's agent loop, taught step by step.
 
 ## Open questions (not blocking)
 
@@ -121,5 +123,4 @@
 
 ## Next step
 
-1. You: build `Loop` from `docs/you-build-it/m1-claim-loop.md` (2 to 3 h). Run `make test-go`, then say "done", HINT or SHOW ME.
-2. Me, when you say `go` (it doesn't wait for your loop): the runner's API client, the executor (clone, BuildKit build, push, logs, complete) and `make register`.
+1. Rest of slice 3, when you say `go`: the runner's API client, the executor (clone, BuildKit build, push, logs, complete), `cfnode runner` and `make register`.

@@ -4,6 +4,8 @@ package runner
 import (
 	"context"
 	"errors"
+	"math/rand/v2"
+	"sync"
 	"time"
 
 	"cloudforge/cfnode/internal/api"
@@ -34,7 +36,50 @@ type Config struct {
 // It returns nil once ctx is cancelled and every job it started has returned,
 // or an error wrapping api.ErrUnauthorized when the control plane refuses the credential.
 //
-// YOU BUILD IT (M1): the rules are in docs/you-build-it/m1-claim-loop.md, and loop_test.go checks them.
+// YOU BUILD IT (M1), shown on request (SHOW ME): docs/you-build-it/m1-claim-loop.md has the rules and a walkthrough.
 func Loop(ctx context.Context, cfg Config, claimer Claimer, executor Executor) error {
-	return errors.ErrUnsupported // the stub, so the tests skip: replace this line with your loop
+	slots := make(chan struct{}, cfg.Capacity) // one item per running job: full means every slot is busy
+	var jobs sync.WaitGroup
+	defer jobs.Wait() // however Loop returns, it waits for the jobs it started
+
+	backoff := cfg.PollInterval
+	for {
+		select { // take a slot before claiming: a claim starts the job's lease (ADR-0003)
+		case slots <- struct{}{}:
+		case <-ctx.Done():
+			return nil
+		}
+
+		job, err := claimer.Claim(ctx)
+		if err == nil && job != nil {
+			backoff = cfg.PollInterval
+			jobs.Go(func() {
+				defer func() { <-slots }() // the job is over: free its slot
+				executor.Execute(ctx, *job)
+			})
+			continue // claim the next one at once
+		}
+		<-slots // no job: give the slot back
+
+		var wait time.Duration
+		switch {
+		case errors.Is(err, api.ErrUnauthorized):
+			return err
+		case err != nil: // temporary: wait longer each time, up to MaxBackoff
+			wait, backoff = backoff, min(2*backoff, cfg.MaxBackoff)
+		default: // nothing to run
+			wait, backoff = jitter(cfg.PollInterval), cfg.PollInterval
+		}
+
+		select {
+		case <-time.After(wait):
+		case <-ctx.Done():
+			return nil
+		}
+	}
+}
+
+// jitter returns d ± 20 %, so that many runners don't poll in lockstep.
+func jitter(d time.Duration) time.Duration {
+	return d*8/10 + rand.N(d*4/10)
 }

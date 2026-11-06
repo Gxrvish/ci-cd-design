@@ -1,14 +1,6 @@
 # YOU BUILD IT (M1): the runner's claim loop
 
-Status: ready 2026-11-06. Time: about 2 to 3 h, including the Go below. Stuck? Say **HINT** (one hint at a time) or **SHOW ME** (my version).
-
-## The task
-
-1. Open `cfnode/internal/runner/loop.go` and replace the one-line stub in `Loop`.
-2. Run `make test-go` (about 5 s). The 6 tests skip while the stub is there. Then all 6 must pass.
-3. Say "done". I review it (REVIEW MODE), then wire it into `cfnode runner`.
-
-Everything else exists: the interfaces, the fakes and the tests. You need only the standard library.
+Status: shown 2026-11-06. You chose SHOW ME plus a walkthrough: the loop in `cfnode/internal/runner/loop.go` is mine, and all 6 tests pass. You write Go later (M6's agent loop), with this as background.
 
 ## The rules (one test each)
 
@@ -18,6 +10,23 @@ Everything else exists: the interfaces, the fakes and the tests. You need only t
 4. **Any other error: wait, then try again.** The wait grows while errors repeat, never goes above `MaxBackoff` (jitter included), and goes back to `PollInterval` after a good answer.
 5. **An error wrapping `api.ErrUnauthorized` (401): stop claiming.** Let the running jobs finish, then return the error.
 6. **Context cancelled: stop claiming.** Let the running jobs finish (they have the same context, so they stop too), then return nil.
+
+## Walkthrough of `Loop`, block by block
+
+1. `slots := make(chan struct{}, cfg.Capacity)`. `:=` declares a variable and infers its type. This is a channel with room for `Capacity` items; `struct{}` is an empty value, so only the count matters. Putting an item in takes a slot; when the channel is full, the next put waits. In Python: `threading.Semaphore(capacity)`.
+2. `var jobs sync.WaitGroup`, then `defer jobs.Wait()`. The WaitGroup counts the running job goroutines. `defer` runs `Wait` when `Loop` returns, whichever way it returns: Python's `try/finally` plus joining every thread (rules 5 and 6).
+3. `for { ... }`. Go's only loop keyword. With nothing after it, it is `while True:`.
+4. The first `select` waits for whichever comes first: a free slot, or `ctx.Done()` (the cancel). Taking the slot before `Claim` is rule 2.
+5. `job, err := claimer.Claim(ctx)`. Two results: Go returns errors as values instead of raising them. `job` is a pointer (`*api.Claim`); `nil` means no job, like Python's `None`.
+6. A job came. Reset the backoff, then `jobs.Go(func() { ... })` starts a goroutine and counts it. Inside, `defer func() { <-slots }()` takes one item out of the channel when the job ends, so the slot is free again. `*job` copies the claim out of the pointer. `continue` starts the next round at once (rule 1).
+7. No job. `<-slots` gives the slot back. A `switch` with no value is an if/elif/else chain:
+   - a 401 returns the error (rule 5);
+   - another error waits `backoff` and doubles it for next time, capped at `MaxBackoff` (rule 4). `a, b = x, y` works like Python's tuple assignment;
+   - nothing to run waits about 1 s, with jitter (rule 3).
+8. The second `select` is a sleep that a cancel interrupts (rule 6).
+9. `jitter` returns `0.8 × d` plus a random amount below `0.4 × d`. A `time.Duration` is a count of nanoseconds, so integer arithmetic works.
+
+Why this is safe with many goroutines: only the loop itself touches `backoff` and `wait`. The job goroutines share only the channel, which is built for that, and `ctx` and `executor`, which they only read.
 
 ## Go for this task (10 min)
 
