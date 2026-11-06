@@ -23,6 +23,7 @@ Learning-first, self-hosted CI/CD and deployment platform. The full contract is 
 - Update `docs/progress.md` and this file after every step.
 - Code: clean code, SOLID, DRY, KISS and YAGNI, strictly (user rule, 2026-11-06).
 - SQL: psycopg 3 with bound parameters only, never values formatted into SQL text. No ORM (ADR-0014).
+- Postman: when an endpoint changes, update `postman/` in the same delivery (user, 2026-11-06).
 - Git: branch `main`, created 2026-11-06. Commit each delivery once it is verified. The user reviews afterwards with `git show` (user, 2026-11-06: "commit always"). Never push.
 - Every change: aim for at most 500 added or changed lines per delivery, code and docs together, and report the count.
   - Go over only when splitting would make it harder to understand, and say why.
@@ -44,6 +45,7 @@ Learning-first, self-hosted CI/CD and deployment platform. The full contract is 
 - `control-plane/`: the Python API (`cloudforge/`), SQL migrations (`migrations/`) and tests (`tests/`).
 - `infrastructure/`: PostgreSQL init SQL, Nginx config. `docker-compose.yml` and `Makefile`: the local stack.
 - `docs/stubs.md`: every shortcut in the code and the milestone that replaces it.
+- `postman/`: a Postman collection of the HTTP API, run in order; each request saves the ids the next one needs.
 - `docs/api/dashboard.md`: dashboard API plan (conventions, roles, endpoints per milestone). FastAPI generates the exact schema.
 - `docs/threat-model.md`: STRIDE threats per trust boundary, residual risks, security tests by milestone.
 - `docs/milestone-plan.md`: hours, weeks and dates per milestone at 6 h/week.
@@ -55,6 +57,8 @@ Ubuntu 22.04, kernel 6.8, cgroup v2, rootful Docker 29.9 (overlay2 on ext4), bui
 ## Commands
 
 - Local stack: `make up` (then `http://cloudforge-console.localhost:8080/healthz`), `make test`, `make down`.
+- Postman collection against the running stack (it creates rows):
+  `docker run --rm --network host -v "$PWD/postman:/etc/newman:ro" postman/newman:6.1.3-alpine run cloudforge.postman_collection.json --color off`
 - Schema check (throwaway PostgreSQL 18, no network, removed afterwards), from `docs/architecture/`:
 
   ```sh

@@ -24,6 +24,7 @@ Spec 18, with one change `[OUR DECISION]`: `cfnode/` instead of `runner/`, becau
 ├── frontend/             React dashboard (M4)
 ├── contracts/v1.yaml     node API contract. Each side's contract tests live with its own tests.
 ├── fixtures/             sample and hostile apps (spec 10)
+├── postman/              a Postman collection of the HTTP API
 ├── infrastructure/       nginx/, buildkit/, postgres/ (init script), scripts/
 ├── docs/                 as today, plus stubs.md and learning-log.md from M1
 ├── secrets/              created by `make init`, git-ignored

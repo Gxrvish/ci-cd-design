@@ -1,0 +1,220 @@
+{
+  "info": {
+    "name": "CloudForge",
+    "description": "CloudForge's dashboard API, M1 part (docs/api/dashboard.md). Start the stack with `make up`.\n\nRun the collection top to bottom (Runner): each request saves the ids the next one needs. Every run creates a new repository, project and build, so it can run again and again.\n\nThe builds use a made-up commit. Once a runner exists (M1 slice 3) they fail at clone: put a real commit of your Gitea repository in `commitSha`.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {"key": "baseUrl", "value": "http://cloudforge-console.localhost:8080"},
+    {"key": "org", "value": "default"},
+    {"key": "commitSha", "value": "3f786850e387550fdab836ed7e6dc881de23001b"},
+    {"key": "externalId", "value": ""},
+    {"key": "repositoryId", "value": ""},
+    {"key": "projectSlug", "value": ""},
+    {"key": "buildId", "value": ""}
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "if (pm.request.body && pm.request.body.raw) {",
+          "    pm.request.headers.upsert({ key: \"Content-Type\", value: \"application/json\" });",
+          "}"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "request": {"method": "GET", "url": "{{baseUrl}}/healthz"},
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"200\", () => pm.response.to.have.status(200));",
+              "pm.test(\"ok\", () => pm.expect(pm.response.json().status).to.eql(\"ok\"));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Dashboard API (M1)",
+      "item": [
+        {
+          "name": "Connect a Gitea repository",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/orgs/{{org}}/repositories",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"provider\": \"gitea\",\n  \"external_id\": \"{{externalId}}\",\n  \"full_name\": \"cloudforge/hello\"\n}",
+              "options": {"raw": {"language": "json"}}
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.collectionVariables.set(\"externalId\", String(Date.now()));"]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"201\", () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set(\"repositoryId\", pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create a project",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/orgs/{{org}}/projects",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"slug\": \"{{projectSlug}}\",\n  \"name\": \"Hello\",\n  \"repository_id\": {{repositoryId}}\n}",
+              "options": {"raw": {"language": "json"}}
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.collectionVariables.set(\"projectSlug\", \"hello-\" + Date.now());"]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {"type": "text/javascript", "exec": ["pm.test(\"201\", () => pm.response.to.have.status(201));"]}
+            }
+          ]
+        },
+        {
+          "name": "Trigger a build",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/projects/{{projectSlug}}/builds",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"commit_sha\": \"{{commitSha}}\"\n}",
+              "options": {"raw": {"language": "json"}}
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"201\", () => pm.response.to.have.status(201));",
+                  "pm.test(\"queued\", () => pm.expect(pm.response.json().state).to.eql(\"queued\"));",
+                  "pm.collectionVariables.set(\"buildId\", pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Read the build",
+          "request": {"method": "GET", "url": "{{baseUrl}}/api/builds/{{buildId}}"},
+          "event": [
+            {
+              "listen": "test",
+              "script": {"type": "text/javascript", "exec": ["pm.test(\"200\", () => pm.response.to.have.status(200));"]}
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Expected errors",
+      "item": [
+        {
+          "name": "Same repository again: 409",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/orgs/{{org}}/repositories",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"provider\": \"gitea\",\n  \"external_id\": \"{{externalId}}\",\n  \"full_name\": \"cloudforge/hello\"\n}",
+              "options": {"raw": {"language": "json"}}
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {"type": "text/javascript", "exec": ["pm.test(\"409\", () => pm.response.to.have.status(409));"]}
+            }
+          ]
+        },
+        {
+          "name": "Slug shaped like a preview: 422",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/orgs/{{org}}/projects",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"slug\": \"pr-1-hello\",\n  \"name\": \"Hello\",\n  \"repository_id\": {{repositoryId}}\n}",
+              "options": {"raw": {"language": "json"}}
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"422\", () => pm.response.to.have.status(422));",
+                  "pm.test(\"refused by project_slug_check\", () => pm.expect(pm.response.json().detail[0].msg).to.eql(\"project_slug_check\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Branch name instead of a commit: 422",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/projects/{{projectSlug}}/builds",
+            "body": {"mode": "raw", "raw": "{\n  \"commit_sha\": \"main\"\n}", "options": {"raw": {"language": "json"}}}
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"422\", () => pm.response.to.have.status(422));",
+                  "pm.test(\"refused by git_sha_check\", () => pm.expect(pm.response.json().detail[0].msg).to.eql(\"git_sha_check\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Unknown build: 404",
+          "request": {"method": "GET", "url": "{{baseUrl}}/api/builds/999999999"},
+          "event": [
+            {
+              "listen": "test",
+              "script": {"type": "text/javascript", "exec": ["pm.test(\"404\", () => pm.response.to.have.status(404));"]}
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
