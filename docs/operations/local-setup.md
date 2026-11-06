@@ -38,7 +38,8 @@ Spec 18, with one change `[OUR DECISION]`: `cfnode/` instead of `runner/`, becau
 ## Prerequisites
 
 - Linux with rootful Docker Engine and the Compose plugin, GNU make, and `sudo` for `make init`.
-- Nothing else. Python, Go and Node run in containers; the host's own copies are only for editors.
+- Go 1.26 on the host, for `make test-go` (gofmt, vet, tests). You stopped the 300 MB Go image on 2026-11-06, so Go tests run on the host.
+- Nothing else: Python and Node run in containers.
 - Free: port 8080 on `127.0.0.1` and `::1`, and ports 3000 and 5000 on `127.0.0.1`.
   - For another web port, set `CF_HTTP_PORT` in `.env`.
   - `[RAN]` On this host Apache holds port 80, so 8080 is the default.

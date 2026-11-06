@@ -1,7 +1,7 @@
 # Local development (docs/operations/local-setup.md).
 SECRETS := secrets/pg_superuser_password secrets/pg_owner_password secrets/pg_app_password
 
-.PHONY: init up down test clean
+.PHONY: init up down test test-go clean
 
 init: $(SECRETS)
 
@@ -17,8 +17,13 @@ up: init
 down:
 	docker compose down
 
-test: init
+test: init test-go
 	docker compose run --rm --build test
+
+# Go runs on the host (Go 1.26): gofmt, vet, then the tests with the race detector.
+test-go:
+	@cd cfnode && test -z "$$(gofmt -l .)" || { gofmt -l .; echo "gofmt needed"; exit 1; }
+	cd cfnode && go vet ./... && go test -race ./...
 
 clean:
 	@printf 'Delete the CloudForge database volume? [y/N] ' && read answer && [ "$$answer" = y ]

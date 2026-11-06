@@ -25,6 +25,7 @@ Learning-first, self-hosted CI/CD and deployment platform. The full contract is 
 - SQL: psycopg 3 with bound parameters only, never values formatted into SQL text. No ORM (ADR-0014).
 - Postman: when an endpoint changes, update `postman/` in the same delivery (user, 2026-11-06).
 - Git: branch `main`, created 2026-11-06. Commit each delivery once it is verified. The user reviews afterwards with `git show` (user, 2026-11-06: "commit always"). Never push.
+  - Never add a `Co-Authored-By` line for Claude to a commit (user, 2026-11-06).
 - Every change: aim for at most 500 added or changed lines per delivery, code and docs together, and report the count.
   - Go over only when splitting would make it harder to understand, and say why.
   - Reason (user, 2026-11-06): big diffs are tiring to read and hard to follow.
@@ -42,6 +43,8 @@ Learning-first, self-hosted CI/CD and deployment platform. The full contract is 
 - `docs/labs/`: one internals lab per milestone. I run it and show you the output.
 - `docs/learning-log.md`: one entry per milestone: what the lab showed, the explain-back result, a real-world note.
 - `docs/operations/local-setup.md`: repository layout, Compose services and networks, secrets, make targets.
+- `cfnode/`: the Go binary for runner and agent (`internal/api`, `internal/runner`).
+- `docs/you-build-it/`: one task sheet per YOU BUILD IT piece: the rules, the Go or SQL needed, how the tests work.
 - `control-plane/`: the Python API (`cloudforge/`), SQL migrations (`migrations/`) and tests (`tests/`).
 - `infrastructure/`: PostgreSQL init SQL, Nginx config. `docker-compose.yml` and `Makefile`: the local stack.
 - `docs/stubs.md`: every shortcut in the code and the milestone that replaces it.
@@ -56,7 +59,8 @@ Ubuntu 22.04, kernel 6.8, cgroup v2, rootful Docker 29.9 (overlay2 on ext4), bui
 
 ## Commands
 
-- Local stack: `make up` (then `http://cloudforge-console.localhost:8080/healthz`), `make test`, `make down`.
+- Local stack: `make up` (then `http://cloudforge-console.localhost:8080/healthz`), `make test` (Python and Go), `make down`.
+- Go only: `make test-go` (host Go 1.26: gofmt, vet, tests with `-race`).
 - Postman collection against the running stack (it creates rows):
   `docker run --rm --network host -v "$PWD/postman:/etc/newman:ro" postman/newman:6.1.3-alpine run cloudforge.postman_collection.json --color off`
 - Schema check (throwaway PostgreSQL 18, no network, removed afterwards), from `docs/architecture/`:

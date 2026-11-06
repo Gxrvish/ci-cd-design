@@ -2,7 +2,7 @@
 
 ## Current position
 
-- Milestone: M1 (walking skeleton). Plan approved, lab done, slices 1, 2a, 2b and 2c done (2026-11-06). Slice 3 (the Go runner) is next.
+- Milestone: M1 (walking skeleton). Plan approved, lab done, slices 1 and 2 done. Slice 3 started (2026-11-06): your claim loop is ready to build.
 - M0: done 2026-11-06 (gates, lab, `docs/learning-log.md`). Its explain-back was skipped; the questions stay in the lab sheet.
 - Gate A (research): approved 2026-11-05. Report: `docs/research/gate-a.md`.
 - Gate B (architecture): approved 2026-11-06, all 3 parts. The part 3 amendments to earlier documents are applied.
@@ -92,6 +92,11 @@
   - `POST /api/orgs/{org}/runner-tokens` moved from M4 to M1: one runner, valid 1 hour;
   - tokens and credentials are 256 random bits, stored as SHA-256; the plaintext never reaches the database;
   - a claim honours organization, trust = pool, labels and capacity (ADR-0003 rule 2, ADR-0009).
+- 2026-11-06: M1 slice 3, part 1 (YOU BUILD IT setup):
+  - Go module `cloudforge/cfnode`. The interface is `Loop(ctx, Config, Claimer, Executor)`. The stub returns `errors.ErrUnsupported`, so the tests skip.
+  - 6 acceptance tests on `testing/synctest` (fake clock). My private version passes; 5 broken versions each fail the test of the rule they break.
+  - Go tests run on the host's Go 1.26 (`make test-go`), not in an image.
+- 2026-11-06: no `Co-Authored-By` lines for Claude in commits (your rule). The first 8 commits still have one.
 
 ## Open questions (not blocking)
 
@@ -116,4 +121,5 @@
 
 ## Next step
 
-1. Slice 3, the Go runner (`cfnode runner`): you write the claim loop (YOU BUILD IT: I give the interface, acceptance tests and hints); I write clone, BuildKit build and push, and `make register`.
+1. You: build `Loop` from `docs/you-build-it/m1-claim-loop.md` (2 to 3 h). Run `make test-go`, then say "done", HINT or SHOW ME.
+2. Me, when you say `go` (it doesn't wait for your loop): the runner's API client, the executor (clone, BuildKit build, push, logs, complete) and `make register`.
