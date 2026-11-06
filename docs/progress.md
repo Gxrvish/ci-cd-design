@@ -2,7 +2,7 @@
 
 ## Current position
 
-- Milestone: M1 (walking skeleton). Plan approved, lab done, slice 1 done (2026-11-06). Slice 2 is next.
+- Milestone: M1 (walking skeleton). Plan approved, lab done, slice 1 and slice 2a done (2026-11-06). Slice 2b is next.
 - M0: done 2026-11-06 (gates, lab, `docs/learning-log.md`). Its explain-back was skipped; the questions stay in the lab sheet.
 - Gate A (research): approved 2026-11-05. Report: `docs/research/gate-a.md`.
 - Gate B (architecture): approved 2026-11-06, all 3 parts. The part 3 amendments to earlier documents are applied.
@@ -80,6 +80,11 @@
   - the migration ledger lives in schema `migration`, out of the app role's reach (ADR-0014 amended);
   - secrets: folder 0700, files 0444; a third password for PostgreSQL's superuser.
 
+- 2026-11-06: M1 slice 2a (dashboard API for M1: repositories, projects, builds):
+  - the schema's constraints validate input; their errors become 422 (constraint name in `msg`) or 409;
+  - rows are dataclasses that FastAPI also returns as responses (ADR-0014); requests are Pydantic models;
+  - pooled connections are in autocommit mode; several writes go inside an explicit transaction.
+
 ## Open questions (not blocking)
 
 - **Staging hostnames.** ADR-0010 names production (`<slug>`) and previews (`pr-<n>-<slug>`), but not staging environments. The unique hostname column stops collisions in any case. The naming rule is decided in M7, with the branch type policies.
@@ -103,4 +108,4 @@
 
 ## Next step
 
-1. Slice 2: the control-plane API for M1. Dashboard side: repositories, projects, builds. Runner side: register, claim, logs, complete.
+1. Slice 2b, the runner side of the API: registration tokens, register, claim, logs, complete, and the M1 deploy shortcut.

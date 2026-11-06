@@ -42,4 +42,4 @@ def test_waits_for_another_runner(owner, tmp_path):
 
 
 def test_the_shipped_migrations_apply(owner):
-    assert migrate(owner) == ["0001_initial"]
+    assert migrate(owner) == ["0001_initial", "0002_default_organization"]

@@ -1,4 +1,4 @@
-"""The control-plane HTTP API (ADR-0001). Slice 1 serves only the health check.
+"""The control-plane HTTP API (ADR-0001).
 
 Async, because SSE log streams (M4, ADR-0006) keep many connections open and idle.
 """
@@ -9,17 +9,19 @@ import psycopg
 from fastapi import FastAPI, HTTPException
 from psycopg_pool import AsyncConnectionPool
 
+from cloudforge import dashboard
 from cloudforge.db import app_conninfo
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    async with AsyncConnectionPool(app_conninfo(), open=False) as pool:
+    async with AsyncConnectionPool(app_conninfo(), open=False, kwargs={"autocommit": True}) as pool:
         app.state.pool = pool
         yield
 
 
 app = FastAPI(lifespan=lifespan, openapi_url="/api/openapi.json", docs_url=None, redoc_url=None)
+app.include_router(dashboard.router)
 
 
 @app.get("/healthz")
