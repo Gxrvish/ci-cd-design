@@ -2,7 +2,7 @@
 
 ## Current position
 
-- Milestone: M1 (walking skeleton). Plan approved, lab done, slices 1, 2a and 2b done (2026-11-06). Slice 2c is next.
+- Milestone: M1 (walking skeleton). Plan approved, lab done, slices 1, 2a, 2b and 2c done (2026-11-06). Slice 3 (the Go runner) is next.
 - M0: done 2026-11-06 (gates, lab, `docs/learning-log.md`). Its explain-back was skipped; the questions stay in the lab sheet.
 - Gate A (research): approved 2026-11-05. Report: `docs/research/gate-a.md`.
 - Gate B (architecture): approved 2026-11-06, all 3 parts. The part 3 amendments to earlier documents are applied.
@@ -105,9 +105,9 @@
   - Happy path only: no auth, UI, webhooks, leases or retries yet.
 - **Order:** the M1 lab first, then 5 slices of at most 500 lines each:
   1. git init, skeleton, PostgreSQL, migrations (ADR-0014), `GET /healthz`.
-  2. Control-plane API for M1. Dashboard side: repositories, projects, builds. Runner side: register, claim, logs, complete. The deploy shortcut (ADR-0005) runs inside `complete`'s transaction.
+  2. Control-plane API for M1, in three deliveries: 2a dashboard (repositories, projects, builds), 2b runner tokens, register and claim, 2c logs, complete and reading a log.
   3. cfnode runner: the claim loop (YOU BUILD IT), then clone, BuildKit build and push.
-  4. cfnode agent and Nginx, with the M1 shortcut: stop old, then start new. The real reconciliation loop is M6's YOU BUILD IT.
+  4. cfnode agent and Nginx, with the M1 shortcut (ADR-0005): a succeeded build creates the deployment (D1), then stop old, start new. It moved here from slice 2 because a deployment needs a node, and nodes register with the agent. The real reconciliation loop is M6's YOU BUILD IT.
   5. `make demo` with the fixture app in Gitea. Then break it (kill the runner mid-build), review, explain-back.
 - **Decided:** the agent uses stdlib HTTP on the Docker socket; the worker starts in M2; `git init` done.
 - **Defaults unless you object:**
@@ -116,4 +116,4 @@
 
 ## Next step
 
-1. Slice 2c, the job calls: logs, complete with the M1 deploy shortcut, and reading an attempt's log.
+1. Slice 3, the Go runner (`cfnode runner`): you write the claim loop (YOU BUILD IT: I give the interface, acceptance tests and hints); I write clone, BuildKit build and push, and `make register`.

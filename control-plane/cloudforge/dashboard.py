@@ -4,13 +4,14 @@ No login until M4: every caller acts for the seeded organization `default` (ADR-
 The schema's constraints validate formats; their errors become 422 or 409 here.
 """
 
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import PlainTextResponse
 from psycopg import AsyncConnection
 from psycopg.errors import CheckViolation, ForeignKeyViolation, UniqueViolation
 from pydantic import BaseModel
@@ -87,6 +88,11 @@ class RunnerToken:
 @dataclass
 class Id:
     id: int
+
+
+@dataclass
+class LogText:
+    text: str
 
 
 @router.post("/orgs/{org}/repositories", status_code=201)
@@ -198,6 +204,25 @@ async def get_build(build_id: int, conn: Connection) -> Build:
     return build
 
 
+@router.get("/builds/{build_id}/attempts/{attempt}/log", response_class=PlainTextResponse)
+async def read_log(build_id: int, attempt: int, conn: Connection) -> str:
+    """One attempt's whole log, as text. M4 makes this path a resumable SSE stream (ADR-0006 rule 5)."""
+    log = await fetch_one(
+        conn,
+        LogText,
+        """
+        SELECT coalesce(string_agg(c.content, '' ORDER BY c.seq), '') AS text
+        FROM job j LEFT JOIN log_chunk c ON c.job_id = j.id AND c.attempt = %(attempt)s
+        WHERE j.build_id = %(build_id)s
+        GROUP BY j.id
+        """,
+        {"build_id": build_id, "attempt": attempt},
+    )
+    if log is None:
+        raise HTTPException(404, "build not found")
+    return log.text
+
+
 async def _organization_id(conn: AsyncConnection, slug: str) -> int:
     row = await fetch_one(conn, Id, "SELECT id FROM organization WHERE slug = %(slug)s", {"slug": slug})
     if row is None:
@@ -206,7 +231,7 @@ async def _organization_id(conn: AsyncConnection, slug: str) -> int:
 
 
 @contextmanager
-def _constraint_errors() -> Iterator[None]:
+def _constraint_errors() -> Generator[None, None, None]:
     """Turn the schema's verdict on user input into HTTP answers. The constraint name says what was wrong."""
     try:
         yield

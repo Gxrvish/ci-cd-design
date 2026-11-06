@@ -1,7 +1,7 @@
 """Node API for runners and agents, the M1 part (contracts/v1.yaml).
 
-M1 is the happy path. Leases are set but never enforced, and claims take no SKIP LOCKED; both arrive in M2
-(YOU BUILD IT, docs/stubs.md).
+M1 is the happy path, allowed to be bad (spec M1). Leases are set but never enforced, claims take no SKIP LOCKED,
+and logs have no gap or size rules: M2 and M4 replace these parts (YOU BUILD IT, docs/stubs.md).
 """
 
 import os
@@ -10,7 +10,8 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel, Field
+from psycopg.errors import CheckViolation
+from pydantic import BaseModel, Field, model_validator
 
 from cloudforge.credentials import digest, new_secret
 from cloudforge.db import Connection, fetch_one
@@ -193,3 +194,99 @@ async def claim_job(runner: Annotated[Runner, Depends(_runner)], conn: Connectio
             job.max_image_bytes,
         ),
     )
+
+
+class LogChunk(BaseModel):
+    seq: int = Field(ge=0)
+    text: str = Field(pattern=r"^[^\x00]*$")  # PostgreSQL text can't hold NUL; the runner replaces it (ADR-0006)
+
+
+class Completion(BaseModel):
+    result: Literal["succeeded", "failed", "cancelled"]
+    image_digest: str | None = Field(default=None, pattern=r"^sha256:[0-9a-f]{64}$")
+    reason: str | None = None  # step_failed:<step>, timeout or image_too_large
+
+    @model_validator(mode="after")
+    def _required_by_result(self):
+        if self.result == "succeeded" and self.image_digest is None:
+            raise ValueError("a succeeded build needs its image_digest")
+        if self.result == "failed" and self.reason is None:
+            raise ValueError("a failed build needs a reason")
+        return self
+
+
+@dataclass
+class Job:
+    id: int
+    attempt: int
+    state: str
+    build_id: int
+    cancel_requested: bool
+
+
+@dataclass
+class JobAck:
+    cancel_requested: bool
+
+
+async def _job(job_id: int, attempt: int, token: Secret, conn: Connection) -> Job:
+    """The job this token was issued for: 401 for a bad token, 409 for an older attempt (ADR-0003 rule 3)."""
+    job = await fetch_one(
+        conn,
+        Job,
+        """
+        SELECT id, attempt, state, build_id, cancel_requested_at IS NOT NULL AS cancel_requested
+        FROM job WHERE id = %(id)s AND token_hash = %(token_hash)s
+        """,
+        {"id": job_id, "token_hash": digest(token)},
+    )
+    if job is None:
+        raise HTTPException(401, "unknown job token")
+    if job.attempt != attempt:
+        raise HTTPException(409, "fenced: a newer attempt owns this job")
+    return job
+
+
+def _require_running(job: Job) -> None:
+    if job.state != "running":
+        raise HTTPException(409, "fenced: this attempt is over")
+
+
+@router.post("/jobs/{job_id}/attempts/{attempt}/logs", status_code=202)
+async def append_log(body: LogChunk, job: Annotated[Job, Depends(_job)], conn: Connection) -> JobAck:
+    """Stores each chunk once. Gaps, limits and resume are M4's (YOU BUILD IT, ADR-0006)."""
+    _require_running(job)
+    try:
+        await conn.execute(
+            "INSERT INTO log_chunk (job_id, attempt, seq, content) VALUES (%(job_id)s, %(attempt)s, %(seq)s, %(text)s)"
+            " ON CONFLICT DO NOTHING",
+            {"job_id": job.id, "attempt": job.attempt, "seq": body.seq, "text": body.text},
+        )
+    except CheckViolation as error:  # log_chunk holds at most 64 KiB
+        raise HTTPException(413, "the chunk is over 64 KiB") from error
+    return JobAck(job.cancel_requested)
+
+
+@router.post("/jobs/{job_id}/attempts/{attempt}/complete")
+async def complete_job(body: Completion, job: Annotated[Job, Depends(_job)], conn: Connection) -> Response:
+    """J3, J4 or J5, with B3, B4 or B5. The same result again is accepted again (ADR-0003 rule 6)."""
+    if job.state == body.result:
+        return Response()
+    _require_running(job)
+    if body.result == "cancelled" and not job.cancel_requested:
+        raise HTTPException(409, "nobody asked to cancel this job")
+    params = body.model_dump() | {"id": job.id, "build_id": job.build_id}
+    async with conn.transaction():
+        cursor = await conn.execute(
+            "UPDATE job SET state = %(result)s, finished_at = now() WHERE id = %(id)s AND state = 'running'", params
+        )
+        if cursor.rowcount == 0:  # someone moved first
+            raise HTTPException(409, "fenced: this attempt is over")
+        await conn.execute(
+            """
+            UPDATE build SET state = %(result)s, image_digest = %(image_digest)s, reason = %(reason)s, finished_at = now()
+            WHERE id = %(build_id)s AND state = 'running'
+            """,
+            params,
+        )
+    return Response()

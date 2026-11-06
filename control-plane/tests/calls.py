@@ -33,3 +33,10 @@ def register_runner(client, pool="trusted"):
         "/v1/runners/register", json={"name": "r1", "capacity": 1}, headers=bearer(runner_token(client, pool))
     )
     return bearer(response.json()["credential"])
+
+
+def claimed_job(client):
+    """Queues a build and claims it: the claim, and the URL prefix and auth header of its job calls."""
+    build = queue_build(client)
+    job = client.post("/v1/jobs/claim", headers=register_runner(client)).json()
+    return build, f"/v1/jobs/{job['job_id']}/attempts/{job['attempt']}", bearer(job["job_token"])

@@ -14,3 +14,6 @@ Every shortcut in the code, and when it goes away. Remove a row when its replace
 | M1 slice 2b | claims take no `SKIP LOCKED`; leases are set but nothing checks them (no heartbeat, no reaper) | M2: lease and fencing, YOU BUILD IT; the M2 lab adds `SKIP LOCKED` | one runner, so nothing races |
 | M1 slice 2b | a claim's `secrets` is always empty | M4, with project variables (ADR-0007) | no variables exist yet |
 | M1 slice 2b | `clone_token` is always null: public Gitea repositories only | M3, with GitHub installation tokens (ADR-0011) | the fixture repository is public |
+| M1 slice 2c | logs: each chunk is stored once; no gap check (416), no per-attempt limit, no SSE or resume; the log is read as plain text | M4: log ingestion, YOU BUILD IT (ADR-0006) | builds are short and watched by hand |
+| M1 slice 2c | complete checks only the token, the attempt and `running`; no lease expiry, no event rows | M2: the state machine, lease and fencing, YOU BUILD IT | one runner, no retries yet |
+| M1 slice 2c | no `/heartbeat`, `/steps` or `/release` yet | M2 (heartbeat, release) and M5 (steps) | nothing checks leases, and builds have no steps yet |
