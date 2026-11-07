@@ -57,7 +57,7 @@ The user's goal: understand the architecture, know why each important piece exis
 - `docs/labs/`: one internals lab per milestone. I run it and show you the output.
 - `docs/learning-log.md`: one entry per milestone: what the lab showed, the explain-back result, a real-world note.
 - `docs/operations/local-setup.md`: repository layout, Compose services and networks, secrets, make targets.
-- `cfnode/`: the Go binary for runner and agent (`internal/api`, `internal/runner`, `internal/build`: checkout, BuildKit build and push).
+- `cfnode/`: the Go binary for runner and agent (`internal/api`: the node API's types and HTTP client; `internal/runner`: the claim loop and the log upload; `internal/build`: checkout, BuildKit build and push).
 - `docs/you-build-it/`: one task sheet per YOU BUILD IT piece: the rules, the Go or SQL needed, how the tests work.
 - `control-plane/`: the Python API (`cloudforge/`), SQL migrations (`migrations/`) and tests (`tests/`).
 - `infrastructure/`: PostgreSQL init SQL, Nginx config. `docker-compose.yml` and `Makefile`: the local stack.

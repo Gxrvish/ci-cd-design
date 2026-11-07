@@ -6,7 +6,8 @@
   - 3a (2026-11-06): the claim loop (SHOW ME, with a walkthrough);
   - 3b (2026-11-07): the build engine: check out one commit, build and push it with buildkitd; buildkitd and the registry run in Compose;
   - 2026-11-07, between 3b and 3c: a documentation pass (you asked): `docs/codebase-map.md`, `README.md`, docstrings everywhere;
-  - 3c: next.
+  - 3c-1 (2026-11-08): the runner's API client and its log upload;
+  - 3c-2: next.
 - M0: done 2026-11-06 (gates, lab, `docs/learning-log.md`). Its explain-back was skipped; the questions stay in the lab sheet.
 - Gate A (research): approved 2026-11-05. Report: `docs/research/gate-a.md`.
 - Gate B (architecture): approved 2026-11-06, all 3 parts. The part 3 amendments to earlier documents are applied.
@@ -110,6 +111,11 @@
   - a `root_dir` that a symlink leads out of the checkout is refused: otherwise a hostile repository could build the runner's own files into its image;
   - build output is BuildKit's plain progress text; per-step logs come in M5;
   - `make test` also runs the BuildKit test, in a container with no network beside buildkitd.
+- 2026-11-08: M1 slice 3c-1, split from 3c to stay under the 500-line cap:
+  - `api.Client`: one POST helper. A refusal wraps `ErrUnauthorized` (401), `ErrFenced` (409) or `ErrRejected` (another 4xx); any other error is temporary;
+  - empty labels, digests and reasons are left out of the JSON: the API refuses null labels and empty strings `[RAN]`;
+  - `runner.Log` follows ADR-0006 rules 1, 2 and 4. It sends at least once per second, at most 64 KiB per chunk, cut after a newline. It replaces NUL and invalid UTF-8 with U+FFFD, and sends a failed chunk again unchanged (100 ms, doubling up to 2 s). It stops keeping output at the claim's limit, with one line saying so;
+  - 8 planted bugs, each caught by a test.
 - 2026-11-07: documentation pass, no new features (you asked). Docstrings and comments in Python, Go and the config files, with no behavior change: Python syntax trees and Go token streams are identical to before. Migrations are untouched, because applied files are checksummed.
 
 ## Open questions (not blocking)
@@ -135,5 +141,4 @@
 
 ## Next step
 
-1. Read `docs/codebase-map.md` (about 20 min).
-2. Slice 3c, when you say `go`: the runner's API client, the executor (checkout, build, send logs, complete), `cfnode runner`, `make register`, and the runner and Gitea services.
+1. Slice 3c-2, when you say `go`: the executor (checkout, build, logs, complete), `cfnode runner` and `cfnode register`, the runner's container, Gitea and `make register`, then the first real build through the stack.

@@ -1,6 +1,6 @@
 # Codebase map
 
-The code that exists today: what it does, how it runs, and where to look. Written 2026-11-07, after M1 slice 3b.
+The code that exists today: what it does, how it runs, and where to look. Updated 2026-11-08, after M1 slice 3c-1.
 
 - This page covers only the code that exists. The full design is in `docs/architecture/overview.md`.
 - Update this page in the same delivery whenever a component, a flow or a file's role changes (CLAUDE.md).
@@ -30,7 +30,8 @@ running it.
                  ▲
                  │  HTTP: register, claim, logs, complete
                  │
-           cfnode runner                                      the program: slice 3c
+           cfnode runner                                      the program: slice 3c-2
+                 ├─ api.Client, runner.Log: the API calls     built: slice 3c-1
                  ├─ runner.Loop: claim a job, run it          built: slice 3a
                  ├─ build.Checkout: fetch one commit          built: slice 3b
                  └─ build.Image ──▶ buildkitd ──▶ registry    built: slice 3b
@@ -83,20 +84,24 @@ written by hand, as with `self.env.cr.execute`, because there is no ORM (ADR-001
 | 9 | runner | `POST /v1/jobs/{id}/attempts/{n}/complete` | `node_api.complete_job` | job and build succeeded, with the digest |
 | 10 | you | `GET /api/builds/{id}` and `.../attempts/{n}/log` | `get_build`, `read_log` | nothing |
 
-- Today the tests and Postman make calls 5 to 9 themselves. The runner program that makes them is slice 3c.
+- Today the tests and Postman make calls 5 to 9 themselves. The runner's Go client for them exists (slice 3c-1);
+  the program that uses it is slice 3c-2.
 - Step 7 runs today only in `make test` (`TestImageBuildsAndPushes`), not after a claim.
 - Slice 4 adds the step after 9: the agent deploys the image.
 
 ### Flow D: inside the runner
 
-Planned for slice 3c, from the parts that exist:
+The program and `Execute` arrive in slice 3c-2. The other parts exist.
 
 1. `cfnode runner` reads its credential, connects to buildkitd over a Unix socket, and calls `runner.Loop`.
-2. `Loop` takes a free slot, then calls `Claim`. For a job, it starts a goroutine that runs `Execute(job)`.
+2. `Loop` takes a free slot, then calls `api.Client.Claim`, a POST to `/v1/jobs/claim`. For a job, it starts a
+   goroutine that runs `Execute(job)`.
 3. `Execute` checks the commit out into a new folder (`build.Checkout`), then builds and pushes it (`build.Image`).
 4. During the build, buildkitd calls back into the runner through the session. It asks for the build's files,
    and for the registry account (`build.Login`).
-5. `Execute` sends the build output as log chunks, then completes the job with the digest, or with a failure reason.
+5. The build writes its output into a `runner.Log`. Its `Upload` goroutine sends the output as numbered chunks,
+   at least once per second (`api.Client.AppendLog`). Then `Execute` completes the job (`api.Client.Complete`)
+   with the digest, or with a failure reason.
 
 ### Flow E: `make test`
 
@@ -133,6 +138,8 @@ For each important file: what it owns, what it talks to, why it is built this wa
 | File | Owns | Talks to | Why this way | Open it when |
 |---|---|---|---|---|
 | `internal/api/claim.go` | the claim's JSON types, `ErrUnauthorized` | `runner`, `build` | mirrors `node_api.Claim`: change both, and `contracts/v1.yaml` | the contract changes |
+| `internal/api/client.go`, with `client_test.go` | `Client`: register, claim, logs, complete; `ErrFenced`, `ErrRejected` | the API, over HTTP | one `post` helper for all calls; a refusal wraps an error value that `errors.Is` finds | a call fails, or the API's answer surprises you |
+| `internal/runner/logs.go`, with `logs_test.go` | `Log`: build output as numbered chunks; `retry` | `api.Client.AppendLog`, through a `send` function | ADR-0006: once per second, at most 64 KiB, a failed chunk sent again unchanged | a log is missing, cut wrongly, or late |
 | `internal/runner/loop.go` | the claim loop: slots, polling with jitter, backoff, stop | `api`; from 3c, the HTTP client and the executor | `Claimer` and `Executor` are interfaces, so tests use fakes | a runner claims too much or too little, or won't stop |
 | `internal/runner/loop_test.go` | 6 acceptance tests on a fake clock | `loop.go` | a minute of polling takes milliseconds | you change the loop |
 | `internal/build/build.go` | `Checkout`, `Login`, `Image` | git, buildkitd (Unix socket), the registry through buildkitd | the runner talks to buildkitd only, never to Docker (ADR-0008) | a checkout, build or push fails |
@@ -178,6 +185,8 @@ registration_token ──spent by──▶ runner ◀───────┘ jo
 | Session | callbacks that buildkitd makes into the runner during a build | `build.Login` |
 | Image digest | the SHA-256 of the image's manifest: its exact identity. A tag can move; a digest can't | `complete_job` |
 | Goroutine, channel, context | Go's thread, queue, and stop signal | `loop.go` and its task sheet |
+| Log chunk | a piece of an attempt's output, numbered by `seq` from 0. The API stores each `seq` once, so a resend is harmless | `runner.Log`, `node_api.append_log` |
+| Sentinel error | an error value to check for, like an exception class: `errors.Is(err, api.ErrFenced)` | `internal/api/client.go` |
 
 ## 6. Debugging: symptom, then where to look
 
@@ -195,9 +204,10 @@ registration_token ──spent by──▶ runner ◀───────┘ jo
 
 - **Built:**
   - the control-plane API for M1 (slices 1 and 2);
-  - the claim loop (slice 3a) and the build engine (slice 3b).
+  - the claim loop (slice 3a) and the build engine (slice 3b);
+  - the runner's API client and its log upload (slice 3c-1).
 - **Next:**
-  - slice 3c: the runner program, `make register` and Gitea;
+  - slice 3c-2: the executor, the `cfnode` program and its container, `make register` and Gitea;
   - slice 4: the agent and its routes;
   - slice 5: `make demo`.
 - **Shortcuts:** `docs/stubs.md` lists every one, with the milestone that replaces it.

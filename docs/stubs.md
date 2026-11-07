@@ -18,4 +18,6 @@ Every shortcut in the code, and when it goes away. Remove a row when its replace
 | M1 slice 2c | complete checks only the token, the attempt and `running`; no lease expiry, no event rows | M2: the state machine, lease and fencing, YOU BUILD IT | one runner, no retries yet |
 | M1 slice 2c | no `/heartbeat`, `/steps` or `/release` yet | M2 (heartbeat, release) and M5 (steps) | nothing checks leases, and builds have no steps yet |
 | M1 slice 3 | buildkitd's state lives on a Docker volume, not on a fixed-size filesystem, so a build can fill the host's disk | M5, before the disk-fill fixture runs (ADR-0009, threat 20) | only our own fixtures build until then |
+| M1 slice 3c | the log upload masks no secrets (ADR-0006 rule 1) | M4, with project variables (ADR-0007) | claims carry no secrets before M4 |
+| M1 slice 3c | the runner treats 416 (a gap in the log) as a refusal, and stops uploading the log | M4: log ingestion, YOU BUILD IT (ADR-0006 rule 3) | the M1 API never answers 416 |
 | M1 slice 3 | the registry has one shared `runner` account (htpasswd) that can push to and pull from every repository | M8: job-scoped registry tokens (ADR-0009) | one organization and one runner |
