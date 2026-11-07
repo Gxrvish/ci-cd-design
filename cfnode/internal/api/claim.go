@@ -1,5 +1,5 @@
 // Package api is the runner's side of the node API (contracts/v1.yaml): the JSON messages it exchanges with
-// the control plane.
+// the control plane, and Client, which sends them.
 package api
 
 import "errors"
