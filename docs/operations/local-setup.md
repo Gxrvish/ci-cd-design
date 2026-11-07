@@ -39,6 +39,8 @@ Spec 18, with one change `[OUR DECISION]`: `cfnode/` instead of `runner/`, becau
 
 - Linux with rootful Docker Engine and the Compose plugin, GNU make, and `sudo` for `make init`.
 - Go 1.26 on the host, for `make test-go` (gofmt, vet, tests). You stopped the 300 MB Go image on 2026-11-06, so Go tests run on the host.
+  - `cfnode/go.mod` needs Go 1.26.8, because BuildKit v0.34.2 does. An older `go` downloads that toolchain once, by itself (`GOTOOLCHAIN=auto`: 72 MB, 240 MB unpacked in `~/go/pkg/mod`) `[RAN]`.
+- `htpasswd` (Ubuntu package `apache2-utils`), for `make init`: the registry accepts only bcrypt password hashes.
 - Nothing else: Python and Node run in containers.
 - Free: port 8080 on `127.0.0.1` and `::1`, and ports 3000 and 5000 on `127.0.0.1`.
   - For another web port, set `CF_HTTP_PORT` in `.env`.
@@ -115,11 +117,11 @@ All files live in `secrets/`, which is git-ignored.
 
 | Target | Does | From |
 |---|---|---|
-| `init` | idempotent: creates the missing secrets. From slice 3 also the buildkitd state filesystem (sudo, ADR-0009: a 20 GiB file at `/var/lib/cloudforge/buildkit.img`) | M1 |
-| `up`, `down` | mount the build filesystem if it isn't mounted (no fstab edit), then build and start; stop, keeping volumes | M1 |
+| `init` | idempotent: creates the missing secrets. From M5 also the buildkitd state filesystem (sudo, ADR-0009: a 20 GiB file at `/var/lib/cloudforge/buildkit.img`; until then a volume, `docs/stubs.md`) | M1 |
+| `up`, `down` | build and start (from M5: first mount the build filesystem if it isn't mounted, no fstab edit); stop, keeping volumes | M1 |
 | `register` | create one-time tokens, register the runner and the agent, write their credential files | M1 |
 | `demo` | from nothing to a working URL: `init`, `up`, `register`, push the fixture to Gitea, create the project, build, print the URL | M1 |
-| `test`, `contracts` | unit and integration tests (Python and Go, in containers); validate `contracts/v1.yaml` | M1 |
+| `test`, `contracts` | unit and integration tests: Python in a container, Go on the host, then cfnode's BuildKit test in the `test-build` container beside buildkitd, with no network (threat 32); validate `contracts/v1.yaml` | M1 |
 | `chaos`, `e2e` | the 10 failure scenarios; the whole workflow | M2, M4 |
 | `clean` | `down`, then remove volumes, after asking | M1 |
 
@@ -143,4 +145,10 @@ Also found: **BuildKit fetches registry tokens in its client, which is our runne
 - `[SOURCE]` moby/buildkit `b9d02e6`, Apache-2.0:
   - buildkitd takes the token URL (the realm) from the registry's challenge (`util/resolver/authorizer.go:219`).
   - When the client's session offers a token authority, the client fetches the token from that realm (`authorizer.go:361-368`; `session/auth/authprovider/authprovider.go:144-157`).
-- So the runner needs internet access, and threat #32 applies.
+- So with the stock session, the runner needs internet access, and threat #32 applies.
+
+Checked in M1 slice 3 `[RAN]` 2026-11-07, with BuildKit v0.34.2 (`[SOURCE]` moby/buildkit v0.34.2, Apache-2.0):
+- The stock session (`buildctl`) offers a token authority for every registry, even with no login (`session/auth/authprovider/authprovider.go:248-310`).
+- When a session offers none, buildkitd fetches the token itself (`util/resolver/authorizer.go:201-210, 354-379`). The runner's session (`build.Login`) offers only an account for our registry.
+- Run side by side, with no network for the client: `buildctl` failed with "failed to fetch anonymous token ... network is unreachable", and the runner's code built and pushed `FROM busybox:1.37`.
+- A trap in the control run: buildkitd reuses a token handler across sessions when their credentials match (`authorizer.go`, `authHandlerNS.get`). The first control passed only because of an earlier build; it failed after a restart.

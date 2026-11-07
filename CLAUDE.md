@@ -44,7 +44,7 @@ Learning-first, self-hosted CI/CD and deployment platform. The full contract is 
 - `docs/labs/`: one internals lab per milestone. I run it and show you the output.
 - `docs/learning-log.md`: one entry per milestone: what the lab showed, the explain-back result, a real-world note.
 - `docs/operations/local-setup.md`: repository layout, Compose services and networks, secrets, make targets.
-- `cfnode/`: the Go binary for runner and agent (`internal/api`, `internal/runner`).
+- `cfnode/`: the Go binary for runner and agent (`internal/api`, `internal/runner`, `internal/build`: checkout, BuildKit build and push).
 - `docs/you-build-it/`: one task sheet per YOU BUILD IT piece: the rules, the Go or SQL needed, how the tests work.
 - `control-plane/`: the Python API (`cloudforge/`), SQL migrations (`migrations/`) and tests (`tests/`).
 - `infrastructure/`: PostgreSQL init SQL, Nginx config. `docker-compose.yml` and `Makefile`: the local stack.
@@ -56,11 +56,11 @@ Learning-first, self-hosted CI/CD and deployment platform. The full contract is 
 
 ## Host facts
 
-Ubuntu 22.04, kernel 6.8, cgroup v2, rootful Docker 29.9 (overlay2 on ext4), buildx default `docker` driver, Go 1.26, Python 3.12, Node 20. No nginx, mkcert or buildctl installed; run them as containers. Apache runs on port 80, so CloudForge uses 8080.
+Ubuntu 22.04, kernel 6.8, cgroup v2, rootful Docker 29.9 (overlay2 on ext4), buildx default `docker` driver, Go 1.26 (cfnode needs 1.26.8, which `go` fetches by itself), Python 3.12, Node 20. `htpasswd` installed (apache2-utils). No nginx, mkcert or buildctl installed; run them as containers. Apache runs on port 80, so CloudForge uses 8080.
 
 ## Commands
 
-- Local stack: `make up` (then `http://cloudforge-console.localhost:8080/healthz`), `make test` (Python and Go), `make down`.
+- Local stack: `make up` (then `http://cloudforge-console.localhost:8080/healthz`), `make test` (Python, Go, then the BuildKit test beside buildkitd with no network; buildkitd needs the internet for its first `busybox` pull), `make down`.
 - Go only: `make test-go` (host Go 1.26: gofmt, vet, tests with `-race`).
 - Postman collection against the running stack (it creates rows):
   `docker run --rm --network host -v "$PWD/postman:/etc/newman:ro" postman/newman:6.1.3-alpine run cloudforge.postman_collection.json --color off`

@@ -58,6 +58,33 @@ services:
     depends_on:
       api: {condition: service_healthy}
 
+  buildkitd:  # rootless, one per runner, reached only through its socket (ADR-0009)
+    image: cloudforge-buildkitd
+    build: infrastructure/buildkit
+    security_opt: [seccomp=unconfined, apparmor=unconfined, systempaths=unconfined]
+    cpus: 4  # these limits cover all of this runner's builds together
+    mem_limit: 4g
+    pids_limit: 2048
+    volumes:
+      - buildkit-state:/home/user/.local/share/buildkit
+      - buildkit-socket:/run/user/61000
+    networks: [cf-build]
+    healthcheck:
+      test: ["CMD", "buildctl", "debug", "workers"]
+      interval: 2s
+      retries: 30
+
+  registry:  # buildkitd pushes to registry:5000; the host's Docker daemon pulls from 127.0.0.1:5000
+    image: registry:2.8.3
+    environment:
+      REGISTRY_AUTH: htpasswd  # shared accounts until M8's job-scoped tokens (ADR-0009)
+      REGISTRY_AUTH_HTPASSWD_REALM: cloudforge
+      REGISTRY_AUTH_HTPASSWD_PATH: /run/secrets/registry_htpasswd
+    secrets: [registry_htpasswd]
+    ports: ["127.0.0.1:5000:5000"]
+    volumes: [registry:/var/lib/registry]
+    networks: [cf-build]
+
   test:
     build: {context: control-plane, target: test}
     profiles: [test]
@@ -69,14 +96,34 @@ services:
     depends_on:
       postgres: {condition: service_healthy}
 
+  test-build:  # cfnode's BuildKit test, beside buildkitd. No network: buildkitd fetches registry tokens itself (threat 32)
+    image: cloudforge-buildkitd
+    profiles: [test]
+    entrypoint: ["/build.test", "-test.v", "-test.run", "TestImage"]
+    network_mode: none
+    environment: *env
+    secrets: [registry_runner]
+    volumes:
+      - buildkit-socket:/run/user/61000
+      - ./cfnode/bin/build.test:/build.test:ro  # built on the host by `make test-go`
+    depends_on:
+      buildkitd: {condition: service_healthy}
+      registry: {condition: service_started}
+
 networks:
   cf-control: {name: cf-control, internal: true}  # the database never reaches the internet
   cf-edge: {name: cf-edge}
+  cf-build: {name: cf-build}  # buildkitd and its RUN steps: the internet and the registry, nothing else (ADR-0012)
 
 volumes:
   postgres: {}
+  buildkit-state: {}  # stub: a fixed-size filesystem from M5 (docs/stubs.md)
+  buildkit-socket: {}
+  registry: {}
 
 secrets:
   pg_superuser_password: {file: secrets/pg_superuser_password}
   pg_owner_password: {file: secrets/pg_owner_password}
   pg_app_password: {file: secrets/pg_app_password}
+  registry_htpasswd: {file: secrets/registry_htpasswd}
+  registry_runner: {file: secrets/registry_runner}

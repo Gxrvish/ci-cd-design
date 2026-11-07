@@ -2,7 +2,10 @@
 
 ## Current position
 
-- Milestone: M1 (walking skeleton). Plan approved, lab done, slices 1 and 2 done. Slice 3 started (2026-11-06): the claim loop is done (SHOW ME, with a walkthrough).
+- Milestone: M1 (walking skeleton). Plan approved, lab done, slices 1 and 2 done. Slice 3:
+  - 3a (2026-11-06): the claim loop (SHOW ME, with a walkthrough);
+  - 3b (2026-11-07): the build engine: check out one commit, build and push it with buildkitd; buildkitd and the registry run in Compose;
+  - 3c: next.
 - M0: done 2026-11-06 (gates, lab, `docs/learning-log.md`). Its explain-back was skipped; the questions stay in the lab sheet.
 - Gate A (research): approved 2026-11-05. Report: `docs/research/gate-a.md`.
 - Gate B (architecture): approved 2026-11-06, all 3 parts. The part 3 amendments to earlier documents are applied.
@@ -99,12 +102,17 @@
 - 2026-11-06: no `Co-Authored-By` lines for Claude in commits (your rule). The first 8 commits still have one.
 - 2026-11-06: the claim is one transaction, from the credential check to the commit, with the runner's row locked (`FOR NO KEY UPDATE`).
 - 2026-11-06: claim loop, YOU BUILD IT: you chose SHOW ME plus a walkthrough (you are new to Go). It is in `loop.go`, and the walkthrough is in its task sheet. Your first Go to write is M6's agent loop, taught step by step.
+- 2026-11-07: M1 slice 3b (build engine, `cfnode/internal/build`):
+  - the BuildKit Go client v0.34.2, the same version as buildkitd. It needs Go 1.26.8, which `go` fetched by itself;
+  - the build session holds only our registry's account and no token authority, so buildkitd fetches registry tokens itself (threat 32, `[RAN]` both ways);
+  - a `root_dir` that a symlink leads out of the checkout is refused: otherwise a hostile repository could build the runner's own files into its image;
+  - build output is BuildKit's plain progress text; per-step logs come in M5;
+  - `make test` also runs the BuildKit test, in a container with no network beside buildkitd.
 
 ## Open questions (not blocking)
 
 - **Staging hostnames.** ADR-0010 names production (`<slug>`) and previews (`pr-<n>-<slug>`), but not staging environments. The unique hostname column stops collisions in any case. The naming rule is decided in M7, with the branch type policies.
 - **Connecting a GitHub repository (M3).** The API must check that the user can access the GitHub App installation before linking one of its repositories. The schema already lets only one organization own a repository.
-- **Registry tokens (M1 slice 3, threat 32).** BuildKit fetches registry tokens in its client, our runner, from a URL the registry chooses. Slice 3 checks that a session without a token authority makes buildkitd fetch them itself, from cf-build.
 
 ## M1 plan (approved 2026-11-06)
 
@@ -123,4 +131,4 @@
 
 ## Next step
 
-1. Rest of slice 3, when you say `go`: the runner's API client, the executor (clone, BuildKit build, push, logs, complete), `cfnode runner` and `make register`.
+1. Slice 3c, when you say `go`: the runner's API client, the executor (checkout, build, send logs, complete), `cfnode runner`, `make register`, and the runner and Gitea services.

@@ -1,6 +1,6 @@
 # Threat model (STRIDE)
 
-Status: accepted 2026-11-06 (Gate B part 3). Amended 2026-11-06 by Gate C part 2c (ADR-0015): threats 5 and 6, new threat 31. Amended 2026-11-06 by the M1 lab: threat 16, new threat 32.
+Status: accepted 2026-11-06 (Gate B part 3). Amended 2026-11-06 by Gate C part 2c (ADR-0015): threats 5 and 6, new threat 31. Amended 2026-11-06 by the M1 lab: threat 16, new threat 32. Amended 2026-11-07 by M1 slice 3: threat 32 checked `[RAN]`.
 
 - Reviewed again in M8 (spec 19).
 - Update it whenever a trust boundary changes.
@@ -126,7 +126,7 @@ Verified by: the milestone whose tests prove the mitigation.
 | 29 | TB8 | E | mkcert CA key leaks | never in a container or the repository (ADR-0010) | M8 | none known |
 | 30 | registry | I | stolen runner credential pulls other organizations' images | htpasswd in M1, job-scoped token auth in M8 (ADR-0009) | M8 | stub until M8 |
 | 31 | TB6 | S, T | a hostile app's page sends requests to the dashboard with the user's cookies | the dashboard is a different site from the apps; same-origin check on writes (ADR-0015) | M7 fixture | a public install with apps and dashboard on one registrable domain loses the site separation |
-| 32 | TB5 | I | a hostile Dockerfile names a registry whose auth challenge sends the runner's token request to an internal URL (BuildKit fetches tokens in its client, `docs/operations/local-setup.md`) | the runner's session gives buildkitd only credentials for our registry and no token authority, so buildkitd fetches tokens itself, from cf-build (to verify in M1 slice 3) | M1 slice 3 test, M8 | buildkitd's own requests: egress rules (ADR-0012) |
+| 32 | TB5 | I | a hostile Dockerfile names a registry whose auth challenge sends the runner's token request to an internal URL (BuildKit fetches tokens in its client, `docs/operations/local-setup.md`) | the runner's session gives buildkitd only credentials for our registry and no token authority, so buildkitd fetches tokens itself, from cf-build. `[RAN]` 2026-11-07: with no network of its own, the runner's code still builds `FROM busybox`; the stock `buildctl` session fails there, because it fetches the token itself | M1: `make test` (test-build), M8 | buildkitd's own requests: egress rules (ADR-0012) |
 
 ## 5. Top residual risks
 
@@ -142,7 +142,7 @@ Verified by: the milestone whose tests prove the mitigation.
 
 | Milestone | Tests |
 |---|---|
-| M1 | the runner's session offers no token authority (threat 32) |
+| M1 | the runner's session offers no token authority (threat 32): the BuildKit test runs with no network `[RAN]` |
 | M2 | fencing chaos scenarios |
 | M3 | webhook signature, replay and out-of-order events |
 | M4 | tenant isolation suite, RBAC, write-only secrets, job-scoped secrets |
