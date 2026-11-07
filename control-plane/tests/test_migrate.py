@@ -1,3 +1,9 @@
+"""The migration runner (cloudforge/migrate.py): order, only once, checksums, rollback and the lock.
+
+Each test writes its own migration files into `tmp_path`, a temporary folder from pytest. The last test applies
+the real ones.
+"""
+
 import psycopg
 import pytest
 

@@ -1,4 +1,8 @@
 # Local development (docs/operations/local-setup.md).
+#
+# Make basics: `target: prerequisites`, then the recipe: shell lines, each indented by a tab. `$@` is the
+# target, `$<` its first prerequisite, and `%` matches any name. A file target is made only when it is missing
+# or older than its prerequisites, so `make init` keeps existing secrets. .PHONY targets are commands, not files.
 SECRETS := secrets/pg_superuser_password secrets/pg_owner_password secrets/pg_app_password \
 	secrets/registry_runner secrets/registry_htpasswd
 

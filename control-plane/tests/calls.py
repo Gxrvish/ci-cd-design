@@ -1,4 +1,6 @@
-"""API calls the tests share."""
+"""API calls the tests share. Each helper makes the calls a user or a runner would, so a test shows only the
+step it checks.
+"""
 
 SHA = "3f786850e387550fdab836ed7e6dc881de23001b"
 

@@ -1,3 +1,5 @@
+"""Calls a runner makes with its job token: logs, then complete. A wrong token gets 401, a wrong attempt 409."""
+
 from tests.calls import bearer, claimed_job
 
 DIGEST = "sha256:" + "ab" * 32

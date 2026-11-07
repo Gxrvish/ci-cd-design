@@ -1,5 +1,10 @@
 """Node API for runners and agents, the M1 part (contracts/v1.yaml).
 
+A runner meets three secrets, each a bearer token in the Authorization header:
+1. a registration token (from POST /api/orgs/{org}/runner-tokens) registers it once and returns its credential;
+2. the credential authenticates each claim, and each claim returns a new job token;
+3. the job token authenticates that attempt's job calls: logs, then complete.
+
 M1 is the happy path, allowed to be bad (spec M1). Leases are set but never enforced, claims take no SKIP LOCKED,
 and logs have no gap or size rules: M2 and M4 replace these parts (YOU BUILD IT, docs/stubs.md).
 """
@@ -18,25 +23,30 @@ from cloudforge.db import Connection, fetch_one
 
 router = APIRouter(prefix="/v1")
 
-LEASE_TTL_S = 30  # ADR-0003
-HEARTBEAT_INTERVAL_S = 10  # ADR-0003
+LEASE_TTL_S = 30  # a claim holds its job this long, unless a heartbeat renews it (ADR-0003, enforced from M2)
+HEARTBEAT_INTERVAL_S = 10  # how often the runner renews the lease (ADR-0003, from M2)
 LOG_LIMIT_BYTES = 10 * 1024 * 1024  # ADR-0006 rule 4
 GITEA_URL = os.environ["CF_GITEA_URL"]  # as runners reach it
 REGISTRY = os.environ["CF_REGISTRY"]  # as buildkitd pushes to it (docs/operations/local-setup.md)
 
+# Reads `Authorization: Bearer <secret>`. auto_error=False: a missing header gives None, and _secret answers 401.
 _bearer = HTTPBearer(auto_error=False)
 
 
 def _secret(credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)]) -> str:
+    """The request's bearer secret: a registration token, a runner credential or a job token. 401 if missing."""
     if credentials is None:
         raise HTTPException(401, "missing bearer token")
     return credentials.credentials
 
 
+# A route parameter `token: Secret` receives the bearer secret (dependency injection, like db.Connection).
 Secret = Annotated[str, Depends(_secret)]
 
 
 class RunnerRegistration(BaseModel):
+    """Body of POST /v1/runners/register: the runner's name, its labels, and how many jobs it runs at once."""
+
     name: str = Field(min_length=1, max_length=63)
     labels: list[Annotated[str, Field(pattern=r"^[a-z0-9][a-z0-9_.-]{0,62}$")]] = []
     capacity: int = Field(ge=1, le=32)
@@ -44,12 +54,16 @@ class RunnerRegistration(BaseModel):
 
 @dataclass
 class Credential:
+    """A new runner's id and credential. The credential authenticates its claims; the database keeps its hash."""
+
     id: int
     credential: str  # shown once
 
 
 @dataclass
 class Runner:
+    """The runner row behind a credential: what it may claim, and how many jobs at once."""
+
     id: int
     organization_id: int
     pool: Literal["trusted", "untrusted"]
@@ -60,6 +74,8 @@ class Runner:
 
 @dataclass
 class Source:
+    """What to build: an exact commit, where to fetch it, and the app's folder in it."""
+
     clone_url: str
     commit_sha: str
     clone_token: str | None
@@ -68,12 +84,16 @@ class Source:
 
 @dataclass
 class ImageTarget:
+    """Where to push the image, and the most bytes it may have."""
+
     ref: str
     max_bytes: int
 
 
 @dataclass
 class Claim:
+    """The answer to a claim: the job, this attempt's token, and its limits and timings (contracts/v1.yaml)."""
+
     job_id: int
     attempt: int
     job_token: str
@@ -88,6 +108,8 @@ class Claim:
 
 @dataclass
 class ClaimedJob:
+    """The row the claim query returns. claim_job turns it into a Claim."""
+
     job_id: int
     attempt: int
     build_id: int
@@ -102,8 +124,14 @@ class ClaimedJob:
 
 @router.post("/runners/register", status_code=201)
 async def register_runner(body: RunnerRegistration, token: Secret, conn: Connection) -> Credential:
-    """R1. The token is spent in the same statement, and it decides the organization and the pool (ADR-0009)."""
+    """Register a runner with a one-time registration token, and return its credential, shown once (R1).
+
+    The token is spent in the same statement, and it decides the organization and the pool (ADR-0009): a runner
+    can't choose them. 401 for an unknown, used or expired token.
+    """
     credential, credential_hash = new_secret()
+    # If the UPDATE finds no usable token, `spent` is empty and nothing is inserted. Two registrations with one
+    # token can't both succeed: the second UPDATE waits for the first one's row lock, then sees used_at set.
     cursor = await conn.execute(
         """
         WITH spent AS (
@@ -124,7 +152,11 @@ async def register_runner(body: RunnerRegistration, token: Secret, conn: Connect
 
 
 async def _locked_runner(conn: Connection, credential: str) -> Runner:
-    """The runner behind this credential, locked until the transaction ends. 401 if unknown or revoked."""
+    """The runner behind this credential, locked until the transaction ends. 401 if unknown or revoked.
+
+    FOR NO KEY UPDATE is the lock an UPDATE of the row would take. It makes another claim, pause or revoke of
+    this runner wait for our commit. Foreign-key checks of rows that point to the runner don't wait.
+    """
     runner = await fetch_one(
         conn,
         Runner,
@@ -145,12 +177,17 @@ async def claim_job(credential: Secret, conn: Connection) -> Claim | Response:
 
     One transaction from the credential check to the commit. The runner's row stays locked all along, so a pause
     or revoke can't slip in between, and two claims of one runner never overlap (its capacity holds).
+    204 when there is nothing to run, 401 for an unknown or revoked credential.
     """
     job_token, token_hash = new_secret()
     async with conn.transaction():
         runner = await _locked_runner(conn, credential)
         if runner.state == "paused":
             return Response(status_code=204)
+        # `picked` chooses the job: queued, of the runner's organization and pool, needing only labels the runner
+        # has, while the runner has a free slot. The UPDATE then takes it: running, attempt + 1, the new token's
+        # hash, the lease and the deadline. It checks `j.state = 'queued'` again: if another runner's claim took
+        # the job first, this one updates nothing and answers 204 (M2 adds SKIP LOCKED, docs/stubs.md).
         job = await fetch_one(
             conn,
             ClaimedJob,
@@ -188,6 +225,7 @@ async def claim_job(credential: Secret, conn: Connection) -> Claim | Response:
         )
         if job is None:
             return Response(status_code=204)
+        # B2: the first attempt starts the build. A later attempt finds it running already and changes nothing.
         await conn.execute(
             "UPDATE build SET state = 'running', started_at = now() WHERE id = %(id)s AND state = 'queued'",
             {"id": job.build_id},
@@ -198,6 +236,7 @@ async def claim_job(credential: Secret, conn: Connection) -> Claim | Response:
         job_token=job_token,
         timeout_s=job.timeout_s,
         source=Source(f"{GITEA_URL}/{job.repository}.git", job.commit_sha, None, job.root_dir),  # public repos in M1
+        # A tag per attempt (ADR-0008). Deployments use the image's digest, never this tag.
         image=ImageTarget(
             f"{REGISTRY}/{job.organization}/{job.project}:{job.commit_sha[:12]}-b{job.build_id}-a{job.attempt}",
             job.max_image_bytes,
@@ -206,17 +245,22 @@ async def claim_job(credential: Secret, conn: Connection) -> Claim | Response:
 
 
 class LogChunk(BaseModel):
+    """Body of POST .../logs: one piece of the attempt's log. `seq` numbers the pieces from 0."""
+
     seq: int = Field(ge=0)
     text: str = Field(pattern=r"^[^\x00]*$")  # PostgreSQL text can't hold NUL; the runner replaces it (ADR-0006)
 
 
 class Completion(BaseModel):
+    """Body of POST .../complete: how the attempt ended."""
+
     result: Literal["succeeded", "failed", "cancelled"]
     image_digest: str | None = Field(default=None, pattern=r"^sha256:[0-9a-f]{64}$")
     reason: str | None = None  # step_failed:<step>, timeout or image_too_large
 
     @model_validator(mode="after")
     def _required_by_result(self):
+        """Rules across fields, checked after the field checks: success needs a digest, failure a reason."""
         if self.result == "succeeded" and self.image_digest is None:
             raise ValueError("a succeeded build needs its image_digest")
         if self.result == "failed" and self.reason is None:
@@ -226,6 +270,8 @@ class Completion(BaseModel):
 
 @dataclass
 class Job:
+    """The job a job token belongs to. Nothing sets the cancel flag yet."""
+
     id: int
     attempt: int
     state: str
@@ -235,11 +281,18 @@ class Job:
 
 @dataclass
 class JobAck:
+    """The answer to a log chunk: whether someone asked to cancel the job, so the runner can stop it."""
+
     cancel_requested: bool
 
 
 async def _job(job_id: int, attempt: int, token: Secret, conn: Connection) -> Job:
-    """The job this token was issued for: 401 for a bad token, 409 for an older attempt (ADR-0003 rule 3)."""
+    """The job this token was issued for, checked against the attempt in the URL (ADR-0003 rule 3).
+
+    401 when the token isn't the job's current token. Each claim replaces the token, so an older attempt's token
+    gets 401 too, where ADR-0003 rule 3 asks for 409 (an open question for M2, docs/progress.md).
+    409 when the token is current but the URL names another attempt.
+    """
     job = await fetch_one(
         conn,
         Job,
@@ -257,13 +310,19 @@ async def _job(job_id: int, attempt: int, token: Secret, conn: Connection) -> Jo
 
 
 def _require_running(job: Job) -> None:
+    """409 unless the attempt still runs: an attempt that is over can't send logs or another result."""
     if job.state != "running":
         raise HTTPException(409, "fenced: this attempt is over")
 
 
 @router.post("/jobs/{job_id}/attempts/{attempt}/logs", status_code=202)
 async def append_log(body: LogChunk, job: Annotated[Job, Depends(_job)], conn: Connection) -> JobAck:
-    """Stores each chunk once. Gaps, limits and resume are M4's (YOU BUILD IT, ADR-0006)."""
+    """Store one log chunk of a running attempt, and answer whether the job should be cancelled.
+
+    Each `seq` is stored once: a resent chunk is ignored, so a runner may resend after a lost answer.
+    409 if the attempt is over, 413 for a chunk over 64 KiB.
+    Gaps, limits and resume are M4's (YOU BUILD IT, ADR-0006).
+    """
     _require_running(job)
     try:
         await conn.execute(
@@ -278,8 +337,12 @@ async def append_log(body: LogChunk, job: Annotated[Job, Depends(_job)], conn: C
 
 @router.post("/jobs/{job_id}/attempts/{attempt}/complete")
 async def complete_job(body: Completion, job: Annotated[Job, Depends(_job)], conn: Connection) -> Response:
-    """J3, J4 or J5, with B3, B4 or B5. The same result again is accepted again (ADR-0003 rule 6)."""
-    if job.state == body.result:
+    """End the attempt and its build: succeeded, failed or cancelled (J3, J4 or J5, with B3, B4 or B5).
+
+    The same result again is accepted again (ADR-0003 rule 6), so a runner can retry when an answer got lost.
+    409 for a different result once the attempt is over, or for a cancel that nobody asked for.
+    """
+    if job.state == body.result:  # a retry of a completion that went through
         return Response()
     _require_running(job)
     if body.result == "cancelled" and not job.cancel_requested:
@@ -289,7 +352,7 @@ async def complete_job(body: Completion, job: Annotated[Job, Depends(_job)], con
         cursor = await conn.execute(
             "UPDATE job SET state = %(result)s, finished_at = now() WHERE id = %(id)s AND state = 'running'", params
         )
-        if cursor.rowcount == 0:  # someone moved first
+        if cursor.rowcount == 0:  # someone moved first: the job changed after _job read it
             raise HTTPException(409, "fenced: this attempt is over")
         await conn.execute(
             """

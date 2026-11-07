@@ -1,3 +1,5 @@
+"""Dashboard calls of M1: repositories, projects and manual builds. The schema's constraints decide what is valid."""
+
 from tests.calls import SHA, connect_repository, create_project
 
 

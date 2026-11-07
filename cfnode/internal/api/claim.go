@@ -1,4 +1,5 @@
-// Package api holds the node API's types and its client (contracts/v1.yaml).
+// Package api is the runner's side of the node API (contracts/v1.yaml): the JSON messages it exchanges with
+// the control plane.
 package api
 
 import "errors"
@@ -7,11 +8,14 @@ import "errors"
 var ErrUnauthorized = errors.New("unauthorized")
 
 // Claim is one job, as POST /v1/jobs/claim returns it.
+//
+// Each field's tag, such as `json:"job_id"`, names its key in the JSON. encoding/json fills the struct from
+// the response body by these names, the way Pydantic fills a model.
 type Claim struct {
 	JobID                    int64       `json:"job_id"`
-	Attempt                  int         `json:"attempt"`
-	JobToken                 string      `json:"job_token"`
-	LeaseTTLSeconds          int         `json:"lease_ttl_s"`
+	Attempt                  int         `json:"attempt"`     // 1 on the job's first claim, +1 on each retry
+	JobToken                 string      `json:"job_token"`   // authenticates this attempt's calls: logs, complete
+	LeaseTTLSeconds          int         `json:"lease_ttl_s"` // the claim holds the job this long without a heartbeat
 	HeartbeatIntervalSeconds int         `json:"heartbeat_interval_s"`
 	TimeoutSeconds           int         `json:"timeout_s"`
 	LogLimitBytes            int64       `json:"log_limit_bytes"`

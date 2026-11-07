@@ -14,4 +14,5 @@ def new_secret() -> tuple[str, bytes]:
 
 
 def digest(secret: str) -> bytes:
+    """The SHA-256 of a secret: the database stores it, and finds a presented secret by it."""
     return hashlib.sha256(secret.encode()).digest()

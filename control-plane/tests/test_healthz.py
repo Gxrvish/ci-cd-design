@@ -1,3 +1,5 @@
+"""GET /healthz: 200 when the database answers, 503 when it doesn't. Compose's healthcheck relies on both."""
+
 from fastapi.testclient import TestClient
 
 from cloudforge.api import app

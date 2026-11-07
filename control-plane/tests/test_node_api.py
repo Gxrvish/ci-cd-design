@@ -1,3 +1,5 @@
+"""Runner registration and the claim (cloudforge/node_api.py): which runner may claim which job, and locking."""
+
 import threading
 import time
 
@@ -77,6 +79,11 @@ def test_paused_unknown_and_missing_runners(client, owner):
 
 
 def test_a_claim_waits_for_a_revoke_in_progress_then_refuses(client, owner):
+    """A revoke in progress holds the runner's row lock. The claim waits for it, then sees the revoke and refuses.
+
+    This is why the claim locks the runner's row (FOR NO KEY UPDATE) instead of only reading it: a plain read
+    would still see the runner active, and hand out a job.
+    """
     queue_build(client)
     runner = register_runner(client)
     answer = {}
@@ -94,6 +101,7 @@ def test_a_claim_waits_for_a_revoke_in_progress_then_refuses(client, owner):
 
 
 def wait_until_a_query_waits_for_a_lock(conn):
+    """Poll pg_locks until some query waits for a lock (here: the claim), for at most about 2 s."""
     for _ in range(200):
         if conn.execute("SELECT count(*) FROM pg_locks WHERE NOT granted").fetchone()[0]:
             return

@@ -1,6 +1,8 @@
 # Local CloudForge (docs/operations/local-setup.md). Start with `make up`.
 name: cloudforge
 
+# x-* blocks are ignored by Compose: they hold settings to reuse. `&env` names a block, `*env` inserts it,
+# and `<<: *control-plane` merges one into a service (YAML anchors).
 x-env: &env
   PGHOST: postgres
   PGDATABASE: cloudforge
@@ -14,6 +16,8 @@ x-control-plane: &control-plane
   environment: *env
   networks: [cf-control]
 
+# Start order, through depends_on: postgres healthy, then migrate exits 0, then api healthy, then nginx.
+# Services with `profiles: [test]` start only through `make test`.
 services:
   postgres:
     image: postgres:18.6

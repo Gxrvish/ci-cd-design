@@ -16,7 +16,7 @@ import (
 func TestCheckoutFetchesExactlyTheCommit(t *testing.T) {
 	origin := newRepo(t)
 	write(t, origin, "app.txt", "v1")
-	first := commit(t, origin)
+	first := commit(t, origin) // not the branch tip: Checkout must fetch it by its SHA
 	write(t, origin, "app.txt", "v2")
 	commit(t, origin)
 
@@ -78,6 +78,7 @@ func TestImageBuildsAndPushes(t *testing.T) {
 	t.Logf("pushed %s, log:\n%s", digest, log.String())
 }
 
+// newRepo makes an empty Git repository in a temporary folder, away from this machine's Git settings.
 func newRepo(t *testing.T) string {
 	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull) // this machine's Git settings stay out of the tests
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
@@ -86,6 +87,7 @@ func newRepo(t *testing.T) string {
 	return dir
 }
 
+// commit commits everything in dir and returns the new commit's SHA.
 func commit(t *testing.T, dir string) string {
 	gitOut(t, dir, "add", "--all")
 	gitOut(t, dir, "-c", "user.name=test", "-c", "user.email=test@example.invalid", "commit", "--quiet", "-m", "next")
