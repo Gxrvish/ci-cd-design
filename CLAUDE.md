@@ -5,7 +5,7 @@ Learning-first, self-hosted CI/CD and deployment platform. The full contract is 
 ## Resume in a fresh session
 
 1. Read `docs/progress.md` (current milestone, open questions, next step).
-2. Read the latest gate or milestone doc it points to.
+2. Read the latest gate or milestone doc it points to, and `docs/codebase-map.md` for the code as built.
 3. Continue from "Next step". Do not redo approved gates.
 
 ## Working rules (summary of docs/spec.md, section 0 and 21)
@@ -32,10 +32,23 @@ Learning-first, self-hosted CI/CD and deployment platform. The full contract is 
 - The user is an Odoo backend developer: skip HTTP, SQL and Python basics; explain Go, container internals, BuildKit, scheduling, proxies and TLS concisely.
   - Go: the user knows no Go yet (2026-11-06). Before any Go task, explain each new term in Odoo or Python words, teach the basics first, and split the task into small steps.
 
+## Documentation and explanation standard (user, 2026-11-07)
+
+The user's goal: understand the architecture, know why each important piece exists, navigate the code with confidence, and build on it alone.
+
+- **Explaining in chat:** big picture first, then the parts in the order execution meets them. For each piece: WHAT it does, WHY it exists (the problem it solves, and the alternative we didn't take), and HOW it works. Define every new term at first use, with an Odoo or Python comparison. One new concept per step where possible. Say what already exists, what is new, and where the new code plugs in.
+- **`docs/codebase-map.md`:** the map of the code that exists: big picture, execution flows, file guide, data, concepts, debugging. Update it in the same delivery when a component, a flow or a file's role changes.
+- **Python (PEP 257):** a docstring on every module, class and function, except obvious one-liners and tests whose names say it all. The first line says what it does; then why, and how when it isn't obvious. Name parameters, return values and errors when the names and types don't say it. Route docstrings become the API's descriptions in `/api/openapi.json`: write them for the caller (what it does, status codes), and put implementation notes in `#` comments.
+- **Go (doc comments):** a package comment, and a comment on every exported name that starts with the name; unexported ones when they aren't obvious. Explain a new Go idea in Python terms where it first appears.
+- **Config and SQL:** a comment on each setting that isn't obvious. Applied migrations are checksummed: comment a migration before it is applied, never after.
+- **Comments say why, not what.** Documentation changes never change behavior. Prove it: Python syntax trees without docstrings, and Go token streams without comments, stay identical.
+- **Names:** the domain words of `docs/architecture/data-model.md` (build, job, attempt, claim, lease, environment). Python snake_case; Go MixedCaps, capitalized when exported; SQL table names singular.
+
 ## Layout
 
 - `docs/spec.md`: the contract (verbatim).
 - `docs/progress.md`: state and decisions.
+- `docs/codebase-map.md`: the code as built: flows, file guide, data, concepts, debugging. `README.md`: where a person starts.
 - `docs/research/`: gate research with evidence.
 - `docs/architecture/`: overview (diagrams, components, protocol), data model (ER), state machines, failure scenarios and targets.
   - `schema-check.sql`: checks that the rules of `control-plane/migrations/0001_initial.sql` (the full DDL) hold.

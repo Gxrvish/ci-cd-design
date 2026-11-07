@@ -5,6 +5,7 @@
 - Milestone: M1 (walking skeleton). Plan approved, lab done, slices 1 and 2 done. Slice 3:
   - 3a (2026-11-06): the claim loop (SHOW ME, with a walkthrough);
   - 3b (2026-11-07): the build engine: check out one commit, build and push it with buildkitd; buildkitd and the registry run in Compose;
+  - 2026-11-07, between 3b and 3c: a documentation pass (you asked): `docs/codebase-map.md`, `README.md`, docstrings everywhere;
   - 3c: next.
 - M0: done 2026-11-06 (gates, lab, `docs/learning-log.md`). Its explain-back was skipped; the questions stay in the lab sheet.
 - Gate A (research): approved 2026-11-05. Report: `docs/research/gate-a.md`.
@@ -25,6 +26,7 @@
 - Working rules added 2026-11-06:
   - aim for at most 500 added or changed lines per delivery, for every change; go over only when splitting hurts understanding, and say why;
   - clean code, SOLID, DRY, KISS and YAGNI, strictly.
+- Working rule added 2026-11-07: the documentation and explanation standard in CLAUDE.md. Big picture first; what, why and how; docstrings in every language; `docs/codebase-map.md` kept current.
 
 ## Decisions made
 
@@ -108,9 +110,11 @@
   - a `root_dir` that a symlink leads out of the checkout is refused: otherwise a hostile repository could build the runner's own files into its image;
   - build output is BuildKit's plain progress text; per-step logs come in M5;
   - `make test` also runs the BuildKit test, in a container with no network beside buildkitd.
+- 2026-11-07: documentation pass, no new features (you asked). Docstrings and comments in Python, Go and the config files, with no behavior change: Python syntax trees and Go token streams are identical to before. Migrations are untouched, because applied files are checksummed.
 
 ## Open questions (not blocking)
 
+- **Fencing answers (M2).** Each claim replaces the job token, so an older attempt's job calls get 401, while ADR-0003 rule 3 asks for 409. Found while documenting `node_api._job`. Decide in M2 (state machine, lease and fencing).
 - **Staging hostnames.** ADR-0010 names production (`<slug>`) and previews (`pr-<n>-<slug>`), but not staging environments. The unique hostname column stops collisions in any case. The naming rule is decided in M7, with the branch type policies.
 - **Connecting a GitHub repository (M3).** The API must check that the user can access the GitHub App installation before linking one of its repositories. The schema already lets only one organization own a repository.
 
@@ -131,4 +135,5 @@
 
 ## Next step
 
-1. Slice 3c, when you say `go`: the runner's API client, the executor (checkout, build, send logs, complete), `cfnode runner`, `make register`, and the runner and Gitea services.
+1. Read `docs/codebase-map.md` (about 20 min).
+2. Slice 3c, when you say `go`: the runner's API client, the executor (checkout, build, send logs, complete), `cfnode runner`, `make register`, and the runner and Gitea services.
