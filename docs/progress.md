@@ -7,6 +7,7 @@
   - 3b (2026-11-07): the build engine: check out one commit, build and push it with buildkitd; buildkitd and the registry run in Compose;
   - 2026-11-07, between 3b and 3c: a documentation pass (you asked): `docs/codebase-map.md`, `README.md`, docstrings everywhere;
   - 3c-1 (2026-11-08): the runner's API client and its log upload;
+  - 2026-11-08, between 3c-1 and 3c-2: seed data moved out of the migrations (you asked);
   - 3c-2: next.
 - M0: done 2026-11-06 (gates, lab, `docs/learning-log.md`). Its explain-back was skipped; the questions stay in the lab sheet.
 - Gate A (research): approved 2026-11-05. Report: `docs/research/gate-a.md`.
@@ -112,6 +113,7 @@
   - a `root_dir` that a symlink leads out of the checkout is refused: otherwise a hostile repository could build the runner's own files into its image;
   - build output is BuildKit's plain progress text; per-step logs come in M5;
   - `make test` also runs the BuildKit test, in a container with no network beside buildkitd.
+- 2026-11-08: data kinds (you asked, ADR-0014 amended). Migrations hold the schema and reference data. Seeds (`control-plane/seeds/`, applied after the migrations on every start) hold what every installation needs. Demo data goes through the API, in development only. GitLab does the same (`db/fixtures/production` and `development`). `0002_default_organization.sql` became the first seed; deleting an applied migration was a one-time exception, safe because no production database exists.
 - 2026-11-08: M1 slice 3c-1, split from 3c to stay under the 500-line cap:
   - `api.Client`: one POST helper. A refusal wraps `ErrUnauthorized` (401), `ErrFenced` (409) or `ErrRejected` (another 4xx); any other error is temporary;
   - empty labels, digests and reasons are left out of the JSON: the API refuses null labels and empty strings `[RAN]`;

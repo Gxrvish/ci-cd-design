@@ -1,6 +1,6 @@
 # ADR-0014: Data access and migrations without an ORM
 
-Status: accepted 2026-11-06 (Gate C). It changes the agreed stack (spec 4, ADR-0001): SQLAlchemy and Alembic are dropped. You approved it on 2026-11-06.
+Status: accepted 2026-11-06 (Gate C). It changes the agreed stack (spec 4, ADR-0001): SQLAlchemy and Alembic are dropped. You approved it on 2026-11-06. Amended 2026-11-08: data kinds, and seeds apart from migrations (you asked).
 
 ## Context
 
@@ -49,6 +49,19 @@ Option 3.
   2. creates `migration.schema_migration (version, sha256, applied_at)` if it is missing. It has a schema of its own, so the app role's grant on every table in `public` (0001) never covers it (amended in M1 slice 1);
   3. stops if an applied file's checksum has changed, because applied files are immutable;
   4. applies each pending file and records it, in one transaction per file.
+
+### Data kinds (amended 2026-11-08)
+
+| Kind | What | Where | Runs |
+|---|---|---|---|
+| Schema and reference data | tables, and rows the code depends on, the same in every installation (the `state_transition` rows) | `migrations/` | once per database, in order; immutable once applied |
+| Seed data | what every installation needs before anyone can use it (the organization `default`, until M4) | `seeds/NNNN_name.sql`, applied by `cloudforge.seed` | after the migrations, on every start, so each file must be safe to run again |
+| Demo data | samples for development, demos and tests | API calls: `tests/calls.py`, the Postman collection, `make demo` | in development only |
+
+- `[SOURCE]` GitLab keeps seed data apart from its migrations, and splits it by environment: `db/fixtures/production` holds `002_default_organization.rb` and `003_admin.rb`; `db/fixtures/development` holds over 60 files of demo users, projects, issues and pipelines (gitlab-org/gitlab, MIT, listed 2026-11-08).
+- `[DOCS]` Rails keeps seeds in `db/seeds.rb`, apart from migrations, and runs them with `bin/rails db:seed` (https://guides.rubyonrails.org/active_record_migrations.html#migrations-and-seed-data).
+- Demo data goes through the API, not SQL: it passes the same checks as real input, and can't drift from the code that writes those rows (`create_project` writes three tables in one transaction).
+- `0002_default_organization.sql` became the first seed. Deleting an applied migration broke rule 3 once, while no production database existed. The dev database keeps its row, and a ledger entry that the runner ignores, because it reads only the files on disk.
 
 ## Why
 

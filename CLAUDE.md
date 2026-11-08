@@ -59,7 +59,7 @@ The user's goal: understand the architecture, know why each important piece exis
 - `docs/operations/local-setup.md`: repository layout, Compose services and networks, secrets, make targets.
 - `cfnode/`: the Go binary for runner and agent (`internal/api`: the node API's types and HTTP client; `internal/runner`: the claim loop and the log upload; `internal/build`: checkout, BuildKit build and push).
 - `docs/you-build-it/`: one task sheet per YOU BUILD IT piece: the rules, the Go or SQL needed, how the tests work.
-- `control-plane/`: the Python API (`cloudforge/`), SQL migrations (`migrations/`) and tests (`tests/`).
+- `control-plane/`: the Python API (`cloudforge/`), SQL migrations (`migrations/`), seed data (`seeds/`) and tests (`tests/`).
 - `infrastructure/`: PostgreSQL init SQL, Nginx config. `docker-compose.yml` and `Makefile`: the local stack.
 - `docs/stubs.md`: every shortcut in the code and the milestone that replaces it.
 - `postman/`: a Postman collection of the HTTP API. Any request works alone: a collection script first creates the demo data it needs.

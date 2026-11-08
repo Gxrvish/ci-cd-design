@@ -9,4 +9,5 @@ Modules, in the order a request meets them:
 - db: connection settings, one pooled connection per request, and rows as dataclasses.
 - credentials: random secrets that only the caller sees; the database keeps their hashes.
 - migrate: applies migrations/*.sql in order. The migrate service runs it before the api starts.
+- seed: applies seeds/*.sql, the data every installation needs, right after the migrations.
 """

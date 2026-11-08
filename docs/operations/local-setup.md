@@ -14,6 +14,7 @@ Spec 18, with one change `[OUR DECISION]`: `cfnode/` instead of `runner/`, becau
 ├── control-plane/        Python: one image for api and worker (ADR-0001, ADR-0014)
 │   ├── cloudforge/       thin FastAPI routers, services, SQL modules, worker loops
 │   ├── migrations/       0001_initial.sql (the Gate C schema), then forward-only files
+│   ├── seeds/            data every installation needs, applied on every start (ADR-0014)
 │   ├── tests/            unit tests, and integration tests against real PostgreSQL
 │   ├── pyproject.toml    pinned dependencies
 │   └── Dockerfile
@@ -66,7 +67,7 @@ Spec 18, with one change `[OUR DECISION]`: `cfnode/` instead of `runner/`, becau
 | Service | Runs | Networks | Secrets mounted | From |
 |---|---|---|---|---|
 | postgres | `postgres:18.6` | cf-control | the superuser's and both roles' passwords | M1 |
-| migrate | control-plane image, once, before api and worker | cf-control | owner password | M1 |
+| migrate | control-plane image, once, before api and worker: migrations, then seeds | cf-control | owner password | M1 |
 | api | control-plane image | cf-control, cf-edge | app password, KEK, GitHub App files (M3) | M1 |
 | worker | control-plane image | cf-control, cf-edge | same as api | M2 (M1 gives it no work) |
 | nginx | `nginx:1.31.8-alpine` | cf-edge, plus every `cf-env-*` (the agent connects it) | none | M1 |

@@ -48,7 +48,8 @@ build machines, so they can sit behind NAT or a firewall.
    1. **postgres**. On its very first start, `infrastructure/postgres/init.sql` creates two roles:
       `cloudforge_owner` owns the schema, and the api uses `cloudforge_app`. It also creates the databases
       `cloudforge` and `cloudforge_test`.
-   2. **migrate** runs `python -m cloudforge.migrate` as the owner, applies new `migrations/*.sql` files, and exits.
+   2. **migrate** runs as the owner: `cloudforge.migrate` applies new `migrations/*.sql` files, then
+      `cloudforge.seed` applies every `seeds/*.sql` file. Then it exits.
    3. **api** runs uvicorn with `cloudforge.api:app`. `api.lifespan` opens the connection pool. The
       healthcheck calls `/healthz`.
    4. **nginx** starts once api is healthy, and forwards `cloudforge-console.localhost` to it.
@@ -128,7 +129,7 @@ For each important file: what it owns, what it talks to, why it is built this wa
 | `cloudforge/credentials.py` | random secrets, stored as SHA-256 | `dashboard`, `node_api` | shown once; the database never holds them in plain text | you add a token type |
 | `cloudforge/migrate.py` | applying `migrations/*.sql`, once each, in order | `db` (owner role), `migrations/` | checksums and an advisory lock, no Alembic (ADR-0014) | `make up` stops at migrate |
 | `migrations/0001_initial.sql` | the whole schema: tables, constraints, indexes, grants | every query | constraints guard the rules, even against buggy code | you need a column's meaning or a rule |
-| `migrations/0002_default_organization.sql` | the seeded organization `default` | `dashboard` (`/orgs/default/...`) | no logins until M4 | you wonder where `default` comes from |
+| `cloudforge/seed.py`, `seeds/*.sql` | seed data: what every installation needs, the organization `default` until M4 | `db` (owner role) | re-run on every start, so each file is safe to repeat; no ledger (ADR-0014, data kinds) | you wonder where `default` comes from |
 | `tests/conftest.py`, `tests/calls.py` | fixtures (empty database, app in-process), shared calls | `api`, `migrate`, `db` | each test starts from nothing | a test fails before its first assert |
 | `tests/test_*.py` | one file per module | the module it tests | the tests are the executable spec | you want to know how a call should behave |
 

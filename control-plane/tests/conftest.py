@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from cloudforge.api import app
 from cloudforge.db import owner_conninfo
 from cloudforge.migrate import migrate
+from cloudforge.seed import seed
 
 
 @pytest.fixture
@@ -26,11 +27,12 @@ def owner():
 
 @pytest.fixture
 def client(owner):
-    """The API on a freshly migrated database.
+    """The API on a freshly migrated and seeded database.
 
     TestClient calls the app in-process, with no server and no network. It also runs the app's lifespan, so each
     test opens and closes its own connection pool.
     """
     migrate(owner)
+    seed(owner)
     with TestClient(app) as client:
         yield client

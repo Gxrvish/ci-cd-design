@@ -35,7 +35,7 @@ services:
 
   migrate:
     <<: *control-plane
-    command: ["python", "-m", "cloudforge.migrate"]
+    command: ["sh", "-c", "python -m cloudforge.migrate && python -m cloudforge.seed"]  # migrations, then seeds (ADR-0014)
     secrets: [pg_owner_password]
     depends_on:
       postgres: {condition: service_healthy}
