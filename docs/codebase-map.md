@@ -16,9 +16,9 @@ CloudForge turns a Git commit into a running app with a URL. Three programs shar
    image to the registry. Untrusted repository code runs only in buildkitd's sandbox.
 3. **The agent** (Go, same binary, slice 4): starts the image as a container and routes a hostname to it.
 
-Runners and agents call the control plane; it never calls them (ADR-0002, ADR-0005). In Odoo terms, the
-control plane is the Odoo server with its database, and a runner is a cron worker that locks a job row before
-running it.
+Runners and agents call the control plane; it never calls them (ADR-0002, ADR-0005). GitLab Runner works the
+same way: it polls its server for jobs (`[SOURCE]` in ADR-0002). Pulling needs no inbound connection to the
+build machines, so they can sit behind NAT or a firewall.
 
 ```text
   you, curl, Postman
@@ -66,8 +66,9 @@ Every route has the same shape. Example: `POST /api/projects/hello/builds` with 
 4. A broken constraint becomes 422 or 409 (`dashboard._constraint_errors`). Otherwise FastAPI turns the
    returned `Build` dataclass into JSON, and the connection goes back to the pool.
 
-In Odoo terms: the route is a controller method, and the Pydantic model checks its arguments. The SQL is
-written by hand, as with `self.env.cr.execute`, because there is no ORM (ADR-0014).
+This is FastAPI's standard shape: a path operation function, a Pydantic model that validates the body, and
+dependencies that FastAPI injects by parameter type. The SQL is written by hand, with bound parameters,
+because there is no ORM (ADR-0014).
 
 ### Flow C: a build's life, end to end
 

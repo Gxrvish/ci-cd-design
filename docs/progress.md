@@ -27,6 +27,7 @@
 - Working rules added 2026-11-06:
   - aim for at most 500 added or changed lines per delivery, for every change; go over only when splitting hurts understanding, and say why;
   - clean code, SOLID, DRY, KISS and YAGNI, strictly.
+- Working rule added 2026-11-08 (you): comparisons come from established engineering patterns and well-known open-source projects, not from Odoo.
 - Working rule added 2026-11-07: the documentation and explanation standard in CLAUDE.md. Big picture first; what, why and how; docstrings in every language; `docs/codebase-map.md` kept current.
 
 ## Decisions made

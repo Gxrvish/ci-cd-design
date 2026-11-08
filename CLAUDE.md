@@ -29,14 +29,14 @@ Learning-first, self-hosted CI/CD and deployment platform. The full contract is 
 - Every change: aim for at most 500 added or changed lines per delivery, code and docs together, and report the count.
   - Go over only when splitting would make it harder to understand, and say why.
   - Reason (user, 2026-11-06): big diffs are tiring to read and hard to follow.
-- The user is an Odoo backend developer: skip HTTP, SQL and Python basics; explain Go, container internals, BuildKit, scheduling, proxies and TLS concisely.
-  - Go: the user knows no Go yet (2026-11-06). Before any Go task, explain each new term in Odoo or Python words, teach the basics first, and split the task into small steps.
+- The user is a backend developer who knows Python, SQL and HTTP: skip those basics; explain Go, container internals, BuildKit, scheduling, proxies and TLS concisely.
+  - Go: the user knows no Go yet (2026-11-06). Before any Go task, explain each new term in Python words, teach the basics first, and split the task into small steps.
 
 ## Documentation and explanation standard (user, 2026-11-07)
 
 The user's goal: understand the architecture, know why each important piece exists, navigate the code with confidence, and build on it alone.
 
-- **Explaining in chat:** big picture first, then the parts in the order execution meets them. For each piece: WHAT it does, WHY it exists (the problem it solves, and the alternative we didn't take), and HOW it works. Define every new term at first use, with an Odoo or Python comparison. One new concept per step where possible. Say what already exists, what is new, and where the new code plugs in.
+- **Explaining in chat:** big picture first, then the parts in the order execution meets them. For each piece: WHAT it does, WHY it exists (the problem it solves, and the alternative we didn't take), and HOW it works. Define every new term at first use. Compare with established engineering patterns and well-known open-source projects, labelled `[SOURCE]` or `[DOCS]`, or with Python for language features. Never with Odoo (user, 2026-11-08: "It should rather be from famous open source projects or best software engineering projects or best software engineering patterns"). One new concept per step where possible. Say what already exists, what is new, and where the new code plugs in.
 - **`docs/codebase-map.md`:** the map of the code that exists: big picture, execution flows, file guide, data, concepts, debugging. Update it in the same delivery when a component, a flow or a file's role changes.
 - **Python (PEP 257):** a docstring on every module, class and function, except obvious one-liners and tests whose names say it all. The first line says what it does; then why, and how when it isn't obvious. Name parameters, return values and errors when the names and types don't say it. Route docstrings become the API's descriptions in `/api/openapi.json`: write them for the caller (what it does, status codes), and put implementation notes in `#` comments.
 - **Go (doc comments):** a package comment, and a comment on every exported name that starts with the name; unexported ones when they aren't obvious. Explain a new Go idea in Python terms where it first appears.
