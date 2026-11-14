@@ -2,6 +2,7 @@
 package build
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -46,7 +47,7 @@ func git(ctx context.Context, dir string, args ...string) error {
 	cmd.Dir = dir
 	cmd.Env = append(cmd.Environ(), "GIT_TERMINAL_PROMPT=0") // fail instead of waiting for a password
 	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("git %s: %w: %s", args[0], err, out)
+		return fmt.Errorf("git %s: %w: %s", args[0], err, bytes.TrimSpace(out))
 	}
 	return nil
 }
