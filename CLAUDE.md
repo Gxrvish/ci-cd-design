@@ -57,7 +57,7 @@ The user's goal: understand the architecture, know why each important piece exis
 - `docs/labs/`: one internals lab per milestone. I run it and show you the output.
 - `docs/learning-log.md`: one entry per milestone: what the lab showed, the explain-back result, a real-world note.
 - `docs/operations/local-setup.md`: repository layout, Compose services and networks, secrets, make targets.
-- `cfnode/`: the Go binary for runner and agent (`internal/api`: the node API's types and HTTP client; `internal/runner`: the claim loop and the log upload; `internal/build`: checkout, BuildKit build and push).
+- `cfnode/`: the Go binary for runner and agent (`cmd/cfnode`: the program, `cfnode runner` and `cfnode register`; `internal/api`: the node API's types and HTTP client; `internal/runner`: the claim loop, the executor and the log upload; `internal/build`: checkout, BuildKit build and push). `Dockerfile`: the runner's image.
 - `docs/you-build-it/`: one task sheet per YOU BUILD IT piece: the rules, the Go or SQL needed, how the tests work.
 - `control-plane/`: the Python API (`cloudforge/`), SQL migrations (`migrations/`), seed data (`seeds/`) and tests (`tests/`).
 - `infrastructure/`: PostgreSQL init SQL, Nginx config. `docker-compose.yml` and `Makefile`: the local stack.
@@ -73,8 +73,8 @@ Ubuntu 22.04, kernel 6.8, cgroup v2, rootful Docker 29.9 (overlay2 on ext4), bui
 
 ## Commands
 
-- Local stack: `make up` (then `http://cloudforge-console.localhost:8080/healthz`), `make test` (Python, Go, then the BuildKit test beside buildkitd with no network; buildkitd needs the internet for its first `busybox` pull), `make down`.
-- Go only: `make test-go` (host Go 1.26: gofmt, vet, tests with `-race`).
+- Local stack: `make up` (builds `cfnode`, starts the api, registers the runner once, starts the rest; then `http://cloudforge-console.localhost:8080/healthz`, and Gitea at `http://127.0.0.1:3000`), `make test` (Python, Go, then the BuildKit test beside buildkitd with no network; buildkitd needs the internet for its first `busybox` pull), `make down`.
+- Go only: `make test-go` (host Go 1.26: gofmt, vet, tests with `-race`), `make cfnode` (builds `cfnode/bin/cfnode`). Runner log: `docker compose logs runner`.
 - Postman collection against the running stack (it creates rows):
   `docker run --rm --network host -v "$PWD/postman:/etc/newman:ro" postman/newman:6.1.3-alpine run cloudforge.postman_collection.json --color off`
 - Schema check (throwaway PostgreSQL 18, no network, removed afterwards), from `docs/architecture/`:

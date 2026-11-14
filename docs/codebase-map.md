@@ -1,6 +1,6 @@
 # Codebase map
 
-The code that exists today: what it does, how it runs, and where to look. Updated 2026-11-08, after M1 slice 3c-1.
+The code that exists today: what it does, how it runs, and where to look. Updated 2026-11-14, after M1 slice 3c-2.
 
 - This page covers only the code that exists. The full design is in `docs/architecture/overview.md`.
 - Update this page in the same delivery whenever a component, a flow or a file's role changes (CLAUDE.md).
@@ -30,11 +30,12 @@ build machines, so they can sit behind NAT or a firewall.
                  ▲
                  │  HTTP: register, claim, logs, complete
                  │
-           cfnode runner                                      the program: slice 3c-2
-                 ├─ api.Client, runner.Log: the API calls     built: slice 3c-1
-                 ├─ runner.Loop: claim a job, run it          built: slice 3a
-                 ├─ build.Checkout: fetch one commit          built: slice 3b
-                 └─ build.Image ──▶ buildkitd ──▶ registry    built: slice 3b
+           cfnode runner                                      built: slice 3 (the program: 3c-2)
+                 ├─ runner.Loop: claim a job, run it
+                 ├─ runner.Builder: one job, from checkout to complete
+                 ├─ api.Client, runner.Log: the API calls
+                 ├─ build.Checkout: fetch one commit ◀── Gitea, the local Git host
+                 └─ build.Image ──▶ buildkitd ──▶ registry
                                                      │
            cfnode agent: runs the image at a URL ◀───┘        slice 4
 ```
@@ -44,7 +45,8 @@ build machines, so they can sit behind NAT or a firewall.
 ### Flow A: `make up`
 
 1. `make init` creates the missing secrets in `secrets/`: database passwords and the registry login.
-2. `docker compose up` starts the services in `depends_on` order:
+   `make cfnode` builds the runner's program on the host.
+2. `docker compose up nginx` starts the api and what it needs, in `depends_on` order:
    1. **postgres**. On its very first start, `infrastructure/postgres/init.sql` creates two roles:
       `cloudforge_owner` owns the schema, and the api uses `cloudforge_app`. It also creates the databases
       `cloudforge` and `cloudforge_test`.
@@ -53,7 +55,12 @@ build machines, so they can sit behind NAT or a firewall.
    3. **api** runs uvicorn with `cloudforge.api:app`. `api.lifespan` opens the connection pool. The
       healthcheck calls `/healthz`.
    4. **nginx** starts once api is healthy, and forwards `cloudforge-console.localhost` to it.
-   5. **buildkitd** and **registry** start beside them, on their own network, cf-build.
+3. `make register` runs once, when `secrets/runner_credential` is missing. It asks the dashboard API for a
+   one-time token, and `cfnode register` trades the token for the runner's credential (flow C, calls 4 and 5).
+4. `docker compose up` starts the rest:
+   1. **buildkitd** and **registry**, on their own network, cf-build;
+   2. **gitea**, the local Git host, at `http://127.0.0.1:3000`;
+   3. **runner**: `cfnode runner`, with its credential and the registry login as secret files.
 
 ### Flow B: one HTTP request
 
@@ -78,37 +85,41 @@ because there is no ORM (ADR-0014).
 | 1 | you | `POST /api/orgs/default/repositories` | `dashboard.connect_repository` | a `git_repository` row |
 | 2 | you | `POST /api/orgs/default/projects` | `dashboard.create_project` | project, branch, environment |
 | 3 | you | `POST /api/projects/{slug}/builds` | `dashboard.create_build` | build and job, both queued |
-| 4 | you | `POST /api/orgs/default/runner-tokens` | `dashboard.create_runner_token` | a registration token (its hash) |
-| 5 | runner | `POST /v1/runners/register` | `node_api.register_runner` | token spent; a runner row |
+| 4 | `make register` | `POST /api/orgs/default/runner-tokens` | `dashboard.create_runner_token` | a registration token (its hash) |
+| 5 | `cfnode register` | `POST /v1/runners/register` | `node_api.register_runner` | token spent; a runner row |
 | 6 | runner | `POST /v1/jobs/claim` | `node_api.claim_job` | job running, attempt 1; build running |
 | 7 | runner | none: git and buildkitd | `build.Checkout`, `build.Image` | an image in the registry |
 | 8 | runner | `POST /v1/jobs/{id}/attempts/{n}/logs` | `node_api.append_log` | `log_chunk` rows |
 | 9 | runner | `POST /v1/jobs/{id}/attempts/{n}/complete` | `node_api.complete_job` | job and build succeeded, with the digest |
 | 10 | you | `GET /api/builds/{id}` and `.../attempts/{n}/log` | `get_build`, `read_log` | nothing |
 
-- Today the tests and Postman make calls 5 to 9 themselves. The runner's Go client for them exists (slice 3c-1);
-  the program that uses it is slice 3c-2.
-- Step 7 runs today only in `make test` (`TestImageBuildsAndPushes`), not after a claim.
+- Calls 4 and 5 happen once, in `make up`. The runner makes calls 6 to 9 for every build. The tests and Postman
+  can still make them by hand.
+- A failed build ends at call 9 too, with a reason in place of the digest: `step_failed:clone`,
+  `step_failed:build` or `timeout`.
 - Slice 4 adds the step after 9: the agent deploys the image.
 
 ### Flow D: inside the runner
 
-The program and `Execute` arrive in slice 3c-2. The other parts exist.
-
-1. `cfnode runner` reads its credential, connects to buildkitd over a Unix socket, and calls `runner.Loop`.
+1. `cfnode runner` (`cmd/cfnode/main.go`, `serve`) reads its settings and secret files, puts the parts
+   together, and calls `runner.Loop`. Ctrl-C or `docker stop` cancels the loop's context.
 2. `Loop` takes a free slot, then calls `api.Client.Claim`, a POST to `/v1/jobs/claim`. For a job, it starts a
-   goroutine that runs `Execute(job)`.
-3. `Execute` checks the commit out into a new folder (`build.Checkout`), then builds and pushes it (`build.Image`).
+   goroutine that runs `Builder.Execute(job)`.
+3. `Execute` starts the log upload in a second goroutine. Then it checks the commit out into a new folder
+   (`build.Checkout`), and builds and pushes it (`build.Image`), both within the claim's time limit.
 4. During the build, buildkitd calls back into the runner through the session. It asks for the build's files,
    and for the registry account (`build.Login`).
-5. The build writes its output into a `runner.Log`. Its `Upload` goroutine sends the output as numbered chunks,
-   at least once per second (`api.Client.AppendLog`). Then `Execute` completes the job (`api.Client.Complete`)
-   with the digest, or with a failure reason.
+5. The build writes its output into a `runner.Log`. Its `Upload` sends the output as numbered chunks, at least
+   once per second (`api.Client.AppendLog`).
+6. `Execute` deletes the folder and completes the job (`api.Client.Complete`): with the digest, or with a reason,
+   which it also writes into the log. It sends the completion again until an answer arrives.
+7. Two cases end without a completion: the API refuses a log chunk (fenced), or the runner is stopping. The
+   attempt is dropped, and its job stays `running` until M2's leases (`docs/stubs.md`).
 
 ### Flow E: `make test`
 
-1. **Go, on the host:** gofmt, `go vet`, then `go test -race`. The loop tests run on a fake clock
-   (`testing/synctest`); the checkout tests use local Git repositories.
+1. **Go, on the host:** gofmt, `go vet`, then `go test -race`. The loop, log and executor tests run on a fake
+   clock (`testing/synctest`); the checkout tests use local Git repositories.
 2. **Python, in the test image:** ruff, then pytest against `cloudforge_test`. A test that takes the fixture
    `client` gets an emptied, freshly migrated database, and the app, called in-process.
 3. **BuildKit, in the test-build container,** which has no network: the compiled Go test builds
@@ -142,18 +153,21 @@ For each important file: what it owns, what it talks to, why it is built this wa
 | `internal/api/claim.go` | the claim's JSON types, `ErrUnauthorized` | `runner`, `build` | mirrors `node_api.Claim`: change both, and `contracts/v1.yaml` | the contract changes |
 | `internal/api/client.go`, with `client_test.go` | `Client`: register, claim, logs, complete; `ErrFenced`, `ErrRejected` | the API, over HTTP | one `post` helper for all calls; a refusal wraps an error value that `errors.Is` finds | a call fails, or the API's answer surprises you |
 | `internal/runner/logs.go`, with `logs_test.go` | `Log`: build output as numbered chunks; `retry` | `api.Client.AppendLog`, through a `send` function | ADR-0006: once per second, at most 64 KiB, a failed chunk sent again unchanged | a log is missing, cut wrongly, or late |
-| `internal/runner/loop.go` | the claim loop: slots, polling with jitter, backoff, stop | `api`; from 3c, the HTTP client and the executor | `Claimer` and `Executor` are interfaces, so tests use fakes | a runner claims too much or too little, or won't stop |
+| `cmd/cfnode/main.go` | the program: `cfnode runner` and `cfnode register`; settings, secret files, stop signals | every package below | the one place that knows all the parts; the packages don't know each other's settings | the runner won't start, or a setting is missing |
+| `internal/runner/execute.go`, with `execute_test.go` | `Builder`: one job from checkout to complete; the time limit; the failure reasons | `build` (as two function fields), `api.Client`, `Log` | the engine is passed in, so the tests need neither Git nor buildkitd | a build ends with the wrong result, or never ends |
+| `internal/runner/loop.go` | the claim loop: slots, polling with jitter, backoff, stop | `api.Client` as its `Claimer`, `Builder` as its `Executor` | `Claimer` and `Executor` are interfaces, so tests use fakes | a runner claims too much or too little, or won't stop |
 | `internal/runner/loop_test.go` | 6 acceptance tests on a fake clock | `loop.go` | a minute of polling takes milliseconds | you change the loop |
 | `internal/build/build.go` | `Checkout`, `Login`, `Image` | git, buildkitd (Unix socket), the registry through buildkitd | the runner talks to buildkitd only, never to Docker (ADR-0008) | a checkout, build or push fails |
 | `internal/build/build_test.go` | checkout tests; the BuildKit test | `build.go`; buildkitd and the registry | the BuildKit test needs the stack, so `make test` runs it | you change the build engine |
 
-`go.mod` names the module `cloudforge/cfnode` and pins BuildKit v0.34.2. The task sheet
-`docs/you-build-it/m1-claim-loop.md` walks through `loop.go` block by block.
+`go.mod` names the module `cloudforge/cfnode` and pins BuildKit v0.34.2. `Dockerfile` is the runner's image:
+Alpine, git, and the binary that `make cfnode` built. The task sheet `docs/you-build-it/m1-claim-loop.md` walks
+through `loop.go` block by block.
 
 ### Wiring
 
 - `docker-compose.yml`: every service, network, volume and secret. `docs/operations/local-setup.md` explains each one.
-- `Makefile`: `init`, `up`, `down`, `test`, `test-go`, `clean`.
+- `Makefile`: `init`, `up`, `down`, `register`, `cfnode`, `test`, `test-go`, `clean`.
 - `infrastructure/`: Nginx's site for the console, PostgreSQL's first-start script, and the buildkitd image (uid 61000).
 - `contracts/v1.yaml`: the node API contract (OpenAPI). `postman/`: the collection for trying the API by hand.
 
@@ -189,6 +203,9 @@ registration_token ──spent by──▶ runner ◀───────┘ jo
 | Goroutine, channel, context | Go's thread, queue, and stop signal | `loop.go` and its task sheet |
 | Log chunk | a piece of an attempt's output, numbered by `seq` from 0. The API stores each `seq` once, so a resend is harmless | `runner.Log`, `node_api.append_log` |
 | Sentinel error | an error value to check for, like an exception class: `errors.Is(err, api.ErrFenced)` | `internal/api/client.go` |
+| Time limit | a context that cancels itself after the claim's `timeout_s`; git and the build stop with it | `Builder.build` |
+| Dropped attempt | an attempt that ends without a completion: it was fenced, or its runner is stopping | `Builder.run` |
+| Function value | a struct field that holds a function, like a Python attribute that holds a callable | `Builder.Checkout`, `Builder.Image` |
 
 ## 6. Debugging: symptom, then where to look
 
@@ -199,17 +216,19 @@ registration_token ──spent by──▶ runner ◀───────┘ jo
 | 422 with a constraint name in `msg` | that constraint in `migrations/0001_initial.sql` |
 | a claim answers 204, though a build is queued | the claim's conditions: organization, pool against `build.trusted`, labels, capacity, paused runner |
 | 401 or 409 on logs or complete | `node_api._job`: whose token, which attempt; `_require_running`: is the attempt over? |
-| a checkout fails | the error of `build.Checkout` carries git's own output |
-| a build fails, or a push gets 401 | the build log; `docker compose logs buildkitd`; `Login.Host` must match the registry in the image name |
+| a build stays `queued` | `docker compose ps runner`, then `docker compose logs runner`: one line per job started, completed or dropped |
+| the runner exits with "unauthorized" | its credential isn't in this database. Delete `secrets/runner_credential`, then `make up` registers again |
+| a build stays `running` for good | its runner stopped during the build, and M1 has no leases (`docs/stubs.md`). The runner's log says "job dropped" |
+| a build fails | its log ends with a `[CloudForge: ...]` line: the step, and git's or BuildKit's own error |
+| a push gets 401 | `docker compose logs buildkitd`; `Login.Host` must match the registry in the image name |
 
 ## 7. Status
 
 - **Built:**
   - the control-plane API for M1 (slices 1 and 2);
-  - the claim loop (slice 3a) and the build engine (slice 3b);
-  - the runner's API client and its log upload (slice 3c-1).
+  - the runner (slice 3): claim loop, build engine, API client, log upload, executor, and the `cfnode` program
+    in its container. A commit pushed to Gitea builds end to end.
 - **Next:**
-  - slice 3c-2: the executor, the `cfnode` program and its container, `make register` and Gitea;
   - slice 4: the agent and its routes;
   - slice 5: `make demo`.
 - **Shortcuts:** `docs/stubs.md` lists every one, with the milestone that replaces it.

@@ -7,16 +7,18 @@ x-env: &env
   PGHOST: postgres
   PGDATABASE: cloudforge
   CF_GITEA_URL: http://gitea:3000  # as runners reach Gitea
-  CF_REGISTRY: registry:5000  # as buildkitd pushes
+  CF_REGISTRY: &registry registry:5000  # as buildkitd pushes. `&registry` names the value; `*registry` repeats it
 
-# migrate, api and (from M2) worker share one image, built from its runtime stage.
+# migrate, api and (from M2) worker share one image. Only migrate, the first to run, builds it: Compose labels an
+# image with the service that built it, so two services that build one tag replace each other's image at every `up`.
 x-control-plane: &control-plane
   image: cloudforge-control-plane
-  build: {context: control-plane, target: runtime}
+  pull_policy: never  # built here, never looked for on Docker Hub
   environment: *env
   networks: [cf-control]
 
-# Start order, through depends_on: postgres healthy, then migrate exits 0, then api healthy, then nginx.
+# Start order, through depends_on: postgres healthy, then migrate exits 0, then api healthy, then nginx and runner.
+# The runner needs its credential first: `make up` starts the api, registers the runner, then starts the rest.
 # Services with `profiles: [test]` start only through `make test`.
 services:
   postgres:
@@ -35,6 +37,7 @@ services:
 
   migrate:
     <<: *control-plane
+    build: {context: control-plane, target: runtime}
     command: ["sh", "-c", "python -m cloudforge.migrate && python -m cloudforge.seed"]  # migrations, then seeds (ADR-0014)
     secrets: [pg_owner_password]
     depends_on:
@@ -89,6 +92,35 @@ services:
     volumes: [registry:/var/lib/registry]
     networks: [cf-build]
 
+  runner:  # claims jobs from the api, and builds them with buildkitd, through its socket (ADR-0008)
+    image: cloudforge-cfnode
+    build: cfnode  # copies cfnode/bin/cfnode, which `make cfnode` builds on the host
+    command: [runner]
+    environment:
+      CF_API_URL: http://api:8000  # straight to the api: both are on cf-edge
+      CF_REGISTRY: *registry
+      BUILDKIT_HOST: unix:///run/user/61000/buildkit/buildkitd.sock
+    secrets: [runner_credential, registry_runner]
+    volumes:
+      - buildkit-socket:/run/user/61000
+    networks: [cf-edge]  # never cf-control: it clones hostile repositories, so it must not reach the database
+    depends_on:
+      api: {condition: service_healthy}
+      buildkitd: {condition: service_healthy}
+
+  gitea:  # the local Git host, for development: runners fetch from it (webhooks from M3)
+    image: gitea/gitea:28.3.0-rootless
+    environment:  # GITEA__<section>__<KEY> sets KEY in that section of Gitea's settings file
+      GITEA__security__INSTALL_LOCK: "true"  # no install page: these settings are the installation
+      GITEA__server__ROOT_URL: http://127.0.0.1:3000/
+      GITEA__database__DB_TYPE: sqlite3
+      GITEA__service__DISABLE_REGISTRATION: "true"  # or the first visitor to sign up would be its administrator
+    ports: ["127.0.0.1:3000:3000"]
+    volumes:
+      - gitea-data:/var/lib/gitea
+      - gitea-config:/etc/gitea
+    networks: [cf-edge]
+
   test:
     build: {context: control-plane, target: test}
     profiles: [test]
@@ -124,6 +156,8 @@ volumes:
   buildkit-state: {}  # stub: a fixed-size filesystem from M5 (docs/stubs.md)
   buildkit-socket: {}
   registry: {}
+  gitea-data: {}
+  gitea-config: {}  # its settings file, with the keys that Gitea generates on its first start
 
 secrets:
   pg_superuser_password: {file: secrets/pg_superuser_password}
@@ -131,3 +165,4 @@ secrets:
   pg_app_password: {file: secrets/pg_app_password}
   registry_htpasswd: {file: secrets/registry_htpasswd}
   registry_runner: {file: secrets/registry_runner}
+  runner_credential: {file: secrets/runner_credential}  # written by `make register`

@@ -39,9 +39,10 @@ Spec 18, with one change `[OUR DECISION]`: `cfnode/` instead of `runner/`, becau
 ## Prerequisites
 
 - Linux with rootful Docker Engine and the Compose plugin, GNU make, and `sudo` for `make init`.
-- Go 1.26 on the host, for `make test-go` (gofmt, vet, tests). You stopped the 300 MB Go image on 2026-11-06, so Go tests run on the host.
+- Go 1.26 on the host, for `make test-go` (gofmt, vet, tests) and `make cfnode` (the runner's program). You stopped the 300 MB Go image on 2026-11-06, so Go runs on the host.
   - `cfnode/go.mod` needs Go 1.26.8, because BuildKit v0.34.2 does. An older `go` downloads that toolchain once, by itself (`GOTOOLCHAIN=auto`: 72 MB, 240 MB unpacked in `~/go/pkg/mod`) `[RAN]`.
 - `htpasswd` (Ubuntu package `apache2-utils`), for `make init`: the registry accepts only bcrypt password hashes.
+- `curl`, for `make register`.
 - Nothing else: Python and Node run in containers.
 - Free: port 8080 on `127.0.0.1` and `::1`, and ports 3000 and 5000 on `127.0.0.1`.
   - For another web port, set `CF_HTTP_PORT` in `.env`.
@@ -73,15 +74,20 @@ Spec 18, with one change `[OUR DECISION]`: `cfnode/` instead of `runner/`, becau
 | nginx | `nginx:1.31.8-alpine` | cf-edge, plus every `cf-env-*` (the agent connects it) | none | M1 |
 | registry | `registry:2.8.3` | cf-build; published `127.0.0.1:5000` | htpasswd file | M1 |
 | buildkitd | `infrastructure/buildkit/`: `moby/buildkit:v0.34.2-rootless` with uid 61000; ADR-0009 flags | cf-build | none | M1 |
-| runner | cfnode image, uid 61000 | cf-edge; buildkitd's socket on a shared volume | runner credential, registry login | M1 |
+| runner | `cfnode/Dockerfile`: Alpine with git and the `cfnode` binary, built on the host; uid 61000 | cf-edge; buildkitd's socket on a shared volume | runner credential, registry login | M1 |
 | agent | cfnode image, Docker socket, host network | host | agent credential, registry login | M1 |
-| gitea | Gitea; published `127.0.0.1:3000` | cf-edge | none | M1 (webhooks from M3) |
+| gitea | `gitea/gitea:28.3.0-rootless` with SQLite; sign-up is off, so accounts come from `gitea admin user create`; published `127.0.0.1:3000` | cf-edge | none | M1 (webhooks from M3) |
 | smee | smee-client | cf-edge | channel URL | M3 |
 | object storage | chosen in M4 | cf-control | its keys | M4 |
 
 Image versions are pinned in `docker-compose.yml` and the Dockerfiles. Pinned on 2026-11-06:
 - `postgres:18.6`, `nginx:1.31.8-alpine` and `python:3.14.10-slim`;
 - `moby/buildkit:v0.34.2-rootless` and `registry:2.8.3`.
+
+Pinned on 2026-11-14: `gitea/gitea:28.3.0-rootless`, and `alpine:3.23.8` for the runner (the 3.23 line that the BuildKit image uses, with git 2.52).
+
+- **One image, one builder.** migrate and api share the image `cloudforge-control-plane`, and only migrate has a `build:` entry.
+  - `[RAN]` Compose labels an image with the service that built it. When both services built the tag, each `up` could swap the image and recreate the api.
 
 ## Networks `[OUR DECISION]`
 
@@ -96,6 +102,8 @@ Image versions are pinned in `docker-compose.yml` and the Dockerfiles. Pinned on
   - From the host it can reach every app container for health checks without joining their networks.
   - It calls the API through Nginx on `127.0.0.1`, with the `Host` header set, so no `.localhost` name lookup is involved.
 - **The runner never joins cf-control.** It clones hostile repositories, so even a bug in Git can't reach PostgreSQL directly.
+  - It calls the api at `http://api:8000`, on cf-edge, and fetches from `http://gitea:3000` `[OUR DECISION]`.
+  - It reaches buildkitd only through the socket on their shared volume, and never the registry: buildkitd pushes.
 
 ## Secrets
 
@@ -119,12 +127,13 @@ All files live in `secrets/`, which is git-ignored.
 | Target | Does | From |
 |---|---|---|
 | `init` | idempotent: creates the missing secrets. From M5 also the buildkitd state filesystem (sudo, ADR-0009: a 20 GiB file at `/var/lib/cloudforge/buildkit.img`; until then a volume, `docs/stubs.md`) | M1 |
-| `up`, `down` | build and start (from M5: first mount the build filesystem if it isn't mounted, no fstab edit); stop, keeping volumes | M1 |
-| `register` | create one-time tokens, register the runner and the agent, write their credential files | M1 |
+| `up`, `down` | build `cfnode`, start the api, run `register`, then start the rest (from M5: first mount the build filesystem if it isn't mounted, no fstab edit); stop, keeping volumes | M1 |
+| `register` | once per credential file: ask the dashboard API for a one-time token, and let `cfnode register` trade it for the runner's credential (the agent's from slice 4). `up` runs it | M1 |
+| `cfnode` | build `cfnode/bin/cfnode` on the host, without cgo, so that it runs on Alpine | M1 |
 | `demo` | from nothing to a working URL: `init`, `up`, `register`, push the fixture to Gitea, create the project, build, print the URL | M1 |
 | `test`, `contracts` | unit and integration tests: Python in a container, Go on the host, then cfnode's BuildKit test in the `test-build` container beside buildkitd, with no network (threat 32); validate `contracts/v1.yaml` | M1 |
 | `chaos`, `e2e` | the 10 failure scenarios; the whole workflow | M2, M4 |
-| `clean` | `down`, then remove volumes, after asking | M1 |
+| `clean` | after asking: `down`, remove the volumes, and delete the runner's credential, which belonged to that database | M1 |
 
 Linters: `ruff` for Python, `go vet` and `gofmt` for Go, both run by `make test`.
 
@@ -153,3 +162,14 @@ Checked in M1 slice 3 `[RAN]` 2026-11-07, with BuildKit v0.34.2 (`[SOURCE]` moby
 - When a session offers none, buildkitd fetches the token itself (`util/resolver/authorizer.go:201-210, 354-379`). The runner's session (`build.Login`) offers only an account for our registry.
 - Run side by side, with no network for the client: `buildctl` failed with "failed to fetch anonymous token ... network is unreachable", and the runner's code built and pushed `FROM busybox:1.37`.
 - A trap in the control run: buildkitd reuses a token handler across sessions when their credentials match (`authorizer.go`, `authHandlerNS.get`). The first control passed only because of an earlier build; it failed after a restart.
+
+## Checked with the first real build `[RAN]` 2026-11-14
+
+1. **A commit pushed to Gitea was built end to end** in 3 s: claim, checkout, build, push, 3 log chunks, complete.
+   - The registry answered with the same digest that the build recorded.
+   - Alpine's git 2.52 fetches one commit by its SHA from Gitea over HTTP, as uid 61000 with no home folder.
+2. **The three failures arrive with their reason and a log line:** `step_failed:build` (`RUN exit 3`), `step_failed:clone` (an unknown commit: "not our ref"), and `timeout`.
+   - At the time limit (60 s, the smallest that the schema allows), BuildKit showed the step as `CANCELED`. The step's `sleep` was visible in buildkitd while it ran, and gone when the build ended. This answers half of ADR-0008's open check; a runner that disappears is slice 5's break-it.
+3. **The runner stops cleanly:** `docker compose stop runner` took 0.2 s while idle, with exit code 0. A refused credential ends it with exit code 1 and the API's message.
+4. **`make up` is safe to repeat:** the second run registers nothing and recreates nothing (4.5 s).
+5. **`cfnode register` runs on the host** and calls the console address. The static Go binary resolves `cloudforge-console.localhost` to `::1` and `127.0.0.1` here, through systemd-resolved.

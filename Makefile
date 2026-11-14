@@ -6,7 +6,11 @@
 SECRETS := secrets/pg_superuser_password secrets/pg_owner_password secrets/pg_app_password \
 	secrets/registry_runner secrets/registry_htpasswd
 
-.PHONY: init up down test test-go clean
+# The dashboard's address on this machine. `-include` reads .env if there is one, for another CF_HTTP_PORT.
+-include .env
+CONSOLE := http://cloudforge-console.localhost:$(or $(CF_HTTP_PORT),8080)
+
+.PHONY: init up down register cfnode test test-go clean
 
 init: $(SECRETS)
 
@@ -21,11 +25,31 @@ secrets/registry_htpasswd: secrets/registry_runner
 	@htpasswd -iBn runner < $< > $@.new && chmod 444 $@.new && mv -f $@.new $@
 	@echo "created $@"
 
-up: init
+# The api first, because registering the runner needs it. Then everything else, with the runner.
+up: init cfnode
+	docker compose up --detach --build --wait nginx
+	@$(MAKE) --silent register
 	docker compose up --detach --build --wait
 
 down:
 	docker compose down
+
+# Registers this machine's runner, once: its credential file is the proof. Needs the api (`make up` runs it).
+register: secrets/runner_credential
+
+# A one-time token from the dashboard API, which `cfnode register` trades for the runner's credential (R1).
+# `| cfnode` is an order-only prerequisite: build the program first, but never register again because it changed.
+secrets/runner_credential: | cfnode
+	@token=$$(curl --fail --silent --show-error -H 'Content-Type: application/json' -d '{"pool": "trusted"}' \
+		$(CONSOLE)/api/orgs/default/runner-tokens | sed -E 's/.*"token":"([^"]+)".*/\1/') \
+	&& CF_API_URL=$(CONSOLE) CF_REGISTRATION_TOKEN=$$token cfnode/bin/cfnode register > $@.new \
+	&& chmod 444 $@.new && mv -f $@.new $@
+	@echo "created $@"
+
+# The node program, built on the host; its image copies it (cfnode/Dockerfile). Go's build cache makes this quick
+# when nothing changed. CGO_ENABLED=0 leaves the C library out, so the binary also runs on Alpine.
+cfnode:
+	cd cfnode && CGO_ENABLED=0 go build -o bin/cfnode ./cmd/cfnode
 
 test: init test-go
 	docker compose run --rm --build test
@@ -39,5 +63,6 @@ test-go:
 	cd cfnode && CGO_ENABLED=0 go test -c -o bin/build.test ./internal/build
 
 clean:
-	@printf 'Delete the CloudForge database volume? [y/N] ' && read answer && [ "$$answer" = y ]
+	@printf 'Delete all CloudForge data: database, images, Git repositories? [y/N] ' && read answer && [ "$$answer" = y ]
 	docker compose down --volumes
+	rm -f secrets/runner_credential  # it belonged to the deleted database

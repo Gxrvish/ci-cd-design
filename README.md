@@ -11,9 +11,10 @@ It is built one milestone at a time. The contract is `docs/spec.md`.
 
 ## Run it
 
-Needs Linux, Docker with Compose, GNU make, Go 1.26 and `htpasswd`. Details: `docs/operations/local-setup.md`.
+Needs Linux, Docker with Compose, GNU make, Go 1.26, `curl` and `htpasswd`. Details: `docs/operations/local-setup.md`.
 
-- `make up`: build and start the stack, then open `http://cloudforge-console.localhost:8080/healthz`.
+- `make up`: build and start the stack, with one registered runner. Then open `http://cloudforge-console.localhost:8080/healthz`.
+  Gitea, the local Git host, is at `http://127.0.0.1:3000`.
 - `make test`: Go, Python, and the BuildKit test.
 - `make down`: stop the stack. Its data stays in Docker volumes.
 - `postman/cloudforge.postman_collection.json`: try the API by hand. Every request works on its own.

@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "CloudForge",
-    "description": "CloudForge's HTTP API, M1 part (docs/api/dashboard.md, contracts/v1.yaml). Start the stack with `make up`.\n\nClick any request: it first creates the demo repository, project or build it needs (collection script). Run the whole collection (Runner) to see the full flow. After `make clean`, reset the variables.\n\nThe builds use a made-up commit. Once a runner exists (M1 slice 3) they fail at clone: put a real commit of your Gitea repository in `commitSha`.",
+    "description": "CloudForge's HTTP API, M1 part (docs/api/dashboard.md, contracts/v1.yaml). Start the stack with `make up`.\n\nClick any request: it first creates the demo repository, project or build it needs (collection script). Run the whole collection (Runner) to see the full flow. After `make clean`, reset the variables.\n\nThe stack's runner claims a queued build within a second. The demo builds use a made-up repository and commit, so it fails them at clone (`step_failed:clone`). For a real build, connect a repository that exists in Gitea (`http://127.0.0.1:3000`) and put one of its commits in `commitSha`.\n\nThe Runner API requests play a second runner by hand. If `Claim a job` answers 204, the stack's runner took the build first: `docker compose stop runner` leaves the queue to you.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [

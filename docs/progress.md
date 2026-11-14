@@ -8,7 +8,8 @@
   - 2026-11-07, between 3b and 3c: a documentation pass (you asked): `docs/codebase-map.md`, `README.md`, docstrings everywhere;
   - 3c-1 (2026-11-08): the runner's API client and its log upload;
   - 2026-11-08, between 3c-1 and 3c-2: seed data moved out of the migrations (you asked);
-  - 3c-2: next.
+  - 3c-2 (2026-11-14): the executor, the `cfnode` program and its container, `make register` and Gitea. A commit pushed to Gitea now builds end to end;
+  - slice 4: next.
 - M0: done 2026-11-06 (gates, lab, `docs/learning-log.md`). Its explain-back was skipped; the questions stay in the lab sheet.
 - Gate A (research): approved 2026-11-05. Report: `docs/research/gate-a.md`.
 - Gate B (architecture): approved 2026-11-06, all 3 parts. The part 3 amendments to earlier documents are applied.
@@ -119,11 +120,22 @@
   - empty labels, digests and reasons are left out of the JSON: the API refuses null labels and empty strings `[RAN]`;
   - `runner.Log` follows ADR-0006 rules 1, 2 and 4. It sends at least once per second, at most 64 KiB per chunk, cut after a newline. It replaces NUL and invalid UTF-8 with U+FFFD, and sends a failed chunk again unchanged (100 ms, doubling up to 2 s). It stops keeping output at the claim's limit, with one line saying so;
   - 8 planted bugs, each caught by a test.
+- 2026-11-14: M1 slice 3c-2, which completes the runner:
+  - `runner.Builder` is the executor. The build engine reaches it as two function fields, so its tests need neither Git nor buildkitd;
+  - a failed attempt is completed with `step_failed:clone`, `step_failed:build` or `timeout`, and the reason is also written into the log;
+  - a fenced attempt and a stopping runner complete nothing: the attempt is dropped (the job then stays `running` until M2, `docs/stubs.md`);
+  - `cfnode` reads settings from environment variables and secrets from `/run/secrets`. The runner is named after its machine and runs one job at a time;
+  - `make up` starts the api, registers the runner once (`make register`), then starts the rest. `cfnode register` runs on the host;
+  - the runner calls the api at `http://api:8000`, not through Nginx;
+  - pinned: `gitea/gitea:28.3.0-rootless` (SQLite; sign-up is off, so accounts come from its command line), and `alpine:3.23.8` for the runner's image;
+  - fixed on the way: only migrate builds the control-plane image now. Before, each `make up` could recreate the api (`local-setup.md`);
+  - `[RAN]` a real build in 3 s; the three failures; a cancelled build's process is gone at once; 9 planted bugs, each caught by a test.
 - 2026-11-07: documentation pass, no new features (you asked). Docstrings and comments in Python, Go and the config files, with no behavior change: Python syntax trees and Go token streams are identical to before. Migrations are untouched, because applied files are checksummed.
 
 ## Open questions (not blocking)
 
 - **Fencing answers (M2).** Each claim replaces the job token, so an older attempt's job calls get 401, while ADR-0003 rule 3 asks for 409. Found while documenting `node_api._job`. Decide in M2 (state machine, lease and fencing).
+- **`make contracts` (M1).** `local-setup.md` plans a target that validates `contracts/v1.yaml`; it isn't built. Today the check is a command in CLAUDE.md. Decide at the M1 review: build it, or drop it from the plan.
 - **Staging hostnames.** ADR-0010 names production (`<slug>`) and previews (`pr-<n>-<slug>`), but not staging environments. The unique hostname column stops collisions in any case. The naming rule is decided in M7, with the branch type policies.
 - **Connecting a GitHub repository (M3).** The API must check that the user can access the GitHub App installation before linking one of its repositories. The schema already lets only one organization own a repository.
 
@@ -144,4 +156,4 @@
 
 ## Next step
 
-1. Slice 3c-2, when you say `go`: the executor (checkout, build, logs, complete), `cfnode runner` and `cfnode register`, the runner's container, Gitea and `make register`, then the first real build through the stack.
+1. Slice 4, when you say `go`: the agent (`cfnode agent`), the M1 deployment shortcut (a succeeded build creates the deployment), and Nginx routes for apps. I explain the plan first.
